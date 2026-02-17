@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "react-pdf": "^10.1.0"
+  }
+}

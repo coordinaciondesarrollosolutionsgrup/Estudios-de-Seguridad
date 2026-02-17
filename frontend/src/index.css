@@ -1,0 +1,28 @@
+/* src/index.css */
+@import "tailwindcss";
+/* ó granular:
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+*/
+
+html, body, #root { height: 100%; }
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: transparent; /* para que se vea el canvas/gradiente */
+  color: inherit;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+@layer base {
+  /* Sugerir a los controles nativos que usen tema oscuro */
+  select { color-scheme: dark; }
+
+  /* En Firefox sí pinta el popup con estos colores */
+  option {
+    background-color: #0b1220; /* tu fondo oscuro */
+    color: #e5e7eb;            /* texto claro */
+  }
+}

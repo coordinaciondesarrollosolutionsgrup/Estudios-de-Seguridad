@@ -1,0 +1,53 @@
+{% load static %}
+<!doctype html>
+<html>
+  <body>
+    <header class="header">
+      <div class="h1">Reporte de Estudio #{{ est.id }}</div>
+      <div class="sub">{{ empresa }} · {{ cand.nombre }} {{ cand.apellido }} ({{ cand.cedula }})</div>
+      <div class="chips">
+        <span class="chip chip--state">ESTADO: {{ est.estado|default:"—" }}</span>
+        {% if est.decision_final %}
+          <span class="chip chip--decision {% if est.decision_final != 'APTO' %}no{% endif %}">
+            DECISIÓN: {{ est.decision_final }}
+          </span>
+        {% endif %}
+        <span class="chip chip--progress">PROGRESO: {{ resumen.progreso|default:0 }}%</span>
+      </div>
+    </header>
+
+    <section class="section"><span class="dot"></span><div class="h2">Resumen</div></section>
+    <div class="card">
+      <div>Items: <b>{{ resumen.totales.items }}</b> · Validados: <b>{{ resumen.totales.validados }}</b> · Hallazgos: <b>{{ resumen.totales.hallazgos }}</b></div>
+      <div>Autorización: <b>{% if resumen.autorizacion.firmada %}Firmada{% else %}Pendiente{% endif %}</b></div>
+      <div>Enviado: <b>{{ est.enviado_at|date:"d/m/Y H:i" }}</b> · Cerrado: <b>{{ est.finalizado_at|date:"d/m/Y H:i" }}</b></div>
+      {% if est.observacion_analista %}<div class="note">{{ est.observacion_analista }}</div>{% endif %}
+    </div>
+
+    {% for it in items %}
+      <section class="section"><span class="dot"></span><div class="h2">{{ it.modulo }}</div></section>
+      <div class="card">
+        {% if it.estado %}
+          <div style="margin-bottom:4mm">
+            <span style="display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.15);color:#e2e8f0">{{ it.estado }}</span>
+            {% if it.titulo %}<span style="margin-left:6mm;color:#cbd5e1">{{ it.titulo }}</span>{% endif %}
+          </div>
+        {% endif %}
+
+        <table class="table">
+          <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+          <tbody>
+            {% for c in it.campos %}<tr><td>{{ c.0 }}</td><td>{{ c.1 }}</td></tr>{% empty %}<tr><td>—</td><td>—</td></tr>{% endfor %}
+          </tbody>
+        </table>
+
+        {% if it.docs %}
+          <table class="table" style="margin-top:4mm">
+            <thead><tr><th>Archivo / Anexo</th></tr></thead>
+            <tbody>{% for d in it.docs %}<tr><td>{{ d }}</td></tr>{% endfor %}</tbody>
+          </table>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </body>
+</html>
