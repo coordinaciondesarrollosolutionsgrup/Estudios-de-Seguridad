@@ -13,7 +13,8 @@ import {
 
 const ITEMS = [
   { to: "bio",        label: "Biográficos",         Icon: UserRound },
-  { to: "info_familiar", label: "Info Familiar",    Icon: UsersRound }, // 👈 nuevo
+  { to: "info_familiar", label: "Info Familiar",    Icon: UsersRound },
+  { to: "vivienda",   label: "Vivienda",            Icon: Home }, // 👈 agregado
   { to: "academico",  label: "Académico",           Icon: GraduationCap },
   { to: "laboral",    label: "Laboral",             Icon: BriefcaseBusiness },
   { to: "economico",  label: "Económica",           Icon: BarChart3 },

@@ -1,5 +1,15 @@
+# -------------------- Serializador Descripción de la vivienda --------------------
 from rest_framework import serializers
-from .models import Candidato, CandidatoSoporte, InformacionFamiliar, Pariente, Hijo, Conviviente
+from .models import DescripcionVivienda, Candidato, CandidatoSoporte, InformacionFamiliar, Pariente, Hijo, Conviviente
+
+class DescripcionViviendaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DescripcionVivienda
+        fields = [
+            "id", "estado_vivienda", "iluminacion", "ventilacion", "aseo", "servicios_publicos",
+            "condiciones", "tenencia", "tipo_inmueble", "espacios", "vias_aproximacion",
+            "created_at", "updated_at"
+        ]
 # -------------------- Serializadores Información Familiar --------------------
 class ParienteSerializer(serializers.ModelSerializer):
     class Meta:

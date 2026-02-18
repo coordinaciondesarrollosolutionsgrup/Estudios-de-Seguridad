@@ -1,4 +1,27 @@
 from django.db import models
+# -------------------- Descripción de la vivienda --------------------
+class DescripcionVivienda(models.Model):
+    candidato = models.OneToOneField("candidates.Candidato", related_name="descripcion_vivienda", on_delete=models.CASCADE)
+    # Primera tabla
+    estado_vivienda = models.CharField(max_length=30)
+    iluminacion = models.CharField(max_length=20)
+    ventilacion = models.CharField(max_length=20)
+    aseo = models.CharField(max_length=20)
+    # Servicios públicos: puede ser múltiple, pero para simplicidad inicial, como texto
+    servicios_publicos = models.CharField(max_length=200)
+    # Segunda tabla
+    condiciones = models.CharField(max_length=30)
+    tenencia = models.CharField(max_length=20)
+    tipo_inmueble = models.CharField(max_length=20)
+    # Espacios: puede ser múltiple, pero para simplicidad inicial, como texto
+    espacios = models.CharField(max_length=200)
+    vias_aproximacion = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Descripción vivienda de {self.candidato.nombre} {self.candidato.apellido}"
+from django.db import models
 
 
 class Candidato(models.Model):
