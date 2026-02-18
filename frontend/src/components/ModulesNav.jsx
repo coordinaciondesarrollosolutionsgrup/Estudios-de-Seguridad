@@ -17,11 +17,13 @@ const ITEMS = [
   { to: "vivienda",   label: "Vivienda",            Icon: Home }, // 👈 agregado
   { to: "academico",  label: "Académico",           Icon: GraduationCap },
   { to: "laboral",    label: "Laboral",             Icon: BriefcaseBusiness },
+  { to: "referencias", label: "Referencias",        Icon: UsersRound },
   { to: "economico",  label: "Económica",           Icon: BarChart3 },
+  { to: "patrimonio",  label: "Patrimonio",         Icon: Home },
   { to: "docs",       label: "Documentos",          Icon: FileText },
   { to: "anexos",     label: "Anexos fotográficos", Icon: Images },
-  { to: "referencias", label: "Referencias",        Icon: UsersRound },
-  { to: "patrimonio",  label: "Patrimonio",         Icon: Home },
+
+
 ];
 
 export default function ModulesNav({ items = ITEMS }) {
