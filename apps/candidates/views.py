@@ -5,8 +5,48 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import Candidato, CandidatoSoporte
-from .serializers import CandidatoBioSerializer, CandidatoSoporteSerializer
+from .models import Candidato, CandidatoSoporte, InformacionFamiliar
+from .serializers import CandidatoBioSerializer, CandidatoSoporteSerializer, InformacionFamiliarSerializer
+# -------------------- API Información Familiar --------------------
+class InformacionFamiliarMeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if not info:
+            return Response({"detail": "No hay información familiar registrada."}, status=404)
+        ser = InformacionFamiliarSerializer(info, context={"request": request})
+        return Response(ser.data)
+
+
+    def post(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if info:
+            # Si ya existe, actualiza (igual que PATCH)
+            ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            ser.save()
+            return Response(ser.data, status=200)
+        else:
+            # Si no existe, crea
+            ser = InformacionFamiliarSerializer(data=request.data, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            obj = ser.save(candidato=cand)
+            return Response(InformacionFamiliarSerializer(obj, context={"request": request}).data, status=201)
+
+    # GET eliminado, la lógica es igual a biográfico: solo POST y PATCH
+
+    def patch(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if not info:
+            return Response({"detail": "No hay información familiar registrada."}, status=404)
+        ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data, status=200)
 
 
 def get_candidato_for_user(request):

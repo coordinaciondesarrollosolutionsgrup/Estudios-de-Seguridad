@@ -16,6 +16,7 @@
   import CandidatoAcademico from "./pages/CandidatoAcademico";
   import CandidatoLaboral from "./pages/CandidatoLaboral";
   import CandidatoDocs from "./pages/CandidatoDocs";
+  import CandidatoInfoFamiliar from "./pages/CandidatoInfoFamiliar";
 
 
   export default function App() {
@@ -35,6 +36,7 @@
           >
             <Route index element={<Navigate to="bio" replace />} />
             <Route path="bio" element={<CandidatoBio />} />
+            <Route path="info_familiar" element={<CandidatoInfoFamiliar />} />
             <Route path="academico" element={<CandidatoAcademico />} />
             <Route path="laboral" element={<CandidatoLaboral />} />
             <Route path="docs" element={<CandidatoDocs />} />

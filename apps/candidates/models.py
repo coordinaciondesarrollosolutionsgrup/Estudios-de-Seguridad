@@ -120,3 +120,83 @@ class CandidatoSoporte(models.Model):
 
     def __str__(self):
         return f"{self.candidato_id} - {self.tipo}"
+    # ...existing code...
+
+# -------------------- Información Familiar --------------------
+class InformacionFamiliar(models.Model):
+    candidato = models.OneToOneField("candidates.Candidato", related_name="informacion_familiar", on_delete=models.CASCADE)
+    estado_civil = models.CharField(max_length=30)
+    nombre_pareja = models.CharField(max_length=150, blank=True, null=True)
+    ocupacion_pareja = models.CharField(max_length=100, blank=True, null=True)
+    empresa_pareja = models.CharField(max_length=150, blank=True, null=True)
+    observaciones = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Info familiar de {self.candidato.nombre} {self.candidato.apellido}"
+
+# -------------------- Parientes --------------------
+class Pariente(models.Model):
+    informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="parientes", on_delete=models.CASCADE)
+    parentesco = models.CharField(max_length=30)
+    nombre_apellido = models.CharField(max_length=150)
+    ocupacion = models.CharField(max_length=100, blank=True, null=True)
+    telefono = models.CharField(max_length=30, blank=True, null=True)
+    ciudad = models.CharField(max_length=100, blank=True, null=True)
+    vive_con_el = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.parentesco}: {self.nombre_apellido}"
+
+# -------------------- Hijos --------------------
+class Hijo(models.Model):
+    informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="hijos", on_delete=models.CASCADE)
+    nombre_apellido = models.CharField(max_length=150)
+    ocupacion = models.CharField(max_length=100, blank=True, null=True)
+    vive_con_el = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Hijo: {self.nombre_apellido}"
+
+# -------------------- Convivientes --------------------
+class Conviviente(models.Model):
+    informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="convivientes", on_delete=models.CASCADE)
+    parentesco = models.CharField(max_length=30)
+    nombre_apellido = models.CharField(max_length=150)
+    ocupacion = models.CharField(max_length=100, blank=True, null=True)
+    telefono = models.CharField(max_length=30, blank=True, null=True)
+
+    def __str__(self):
+        return f"Conviviente: {self.nombre_apellido}"
+        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="parientes", on_delete=models.CASCADE)
+        parentesco = models.CharField(max_length=30)
+        nombre_apellido = models.CharField(max_length=150)
+        ocupacion = models.CharField(max_length=100, blank=True, null=True)
+        telefono = models.CharField(max_length=30, blank=True, null=True)
+        ciudad = models.CharField(max_length=100, blank=True, null=True)
+        vive_con_el = models.BooleanField(default=False)
+
+        def __str__(self):
+            return f"{self.parentesco}: {self.nombre_apellido}"
+
+    # -------------------- Hijos --------------------
+    class Hijo(models.Model):
+        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="hijos", on_delete=models.CASCADE)
+        nombre_apellido = models.CharField(max_length=150)
+        ocupacion = models.CharField(max_length=100, blank=True, null=True)
+        vive_con_el = models.BooleanField(default=False)
+
+        def __str__(self):
+            return f"Hijo: {self.nombre_apellido}"
+
+    # -------------------- Convivientes --------------------
+    class Conviviente(models.Model):
+        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="convivientes", on_delete=models.CASCADE)
+        parentesco = models.CharField(max_length=30)
+        nombre_apellido = models.CharField(max_length=150)
+        ocupacion = models.CharField(max_length=100, blank=True, null=True)
+        telefono = models.CharField(max_length=30, blank=True, null=True)
+
+        def __str__(self):
+            return f"Conviviente: {self.nombre_apellido}"
