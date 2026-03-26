@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block subject %}Notificación{% endblock %}</title>
+
+  <style>
+    body {
+      background: linear-gradient(135deg, #4f8cff 0%, #ff6b6b 100%);
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    .container {
+      max-width: 600px;
+      margin: 60px auto;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+      padding: 40px 32px;
+      text-align: center;
+    }
+    .logo {
+      width: 120px;
+      margin-bottom: 24px;
+    }
+    .content {
+      text-align: left;
+      font-size: 1.05rem;
+      color: #222;
+      line-height: 1.5;
+    }
+    .footer {
+      margin-top: 32px;
+      color: #888;
+      font-size: 12px;
+      text-align: center;
+    }
+    a {
+      color: #4f8cff;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <img class="logo" src="https://conecta.econfia.co/static/admin/img/logo.png" alt="Logo" />
+
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+
+    <div class="footer">
+      Este mensaje fue generado automáticamente por el sistema de estudios.<br />
+      No responda a este correo.<br />
+      <a href="https://conecta.econfia.co/">conecta.econfia.co</a>
+    </div>
+  </div>
+</body>
+</html>

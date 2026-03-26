@@ -1,3 +1,6 @@
+# ...existing imports...
+
+
 # apps/studies/views.py
 from io import BytesIO
 import io
@@ -20,11 +23,13 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework import viewsets, permissions
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+from django.template.loader import render_to_string
 
 try:
     from PIL import Image
@@ -53,6 +58,8 @@ from .models import (
     EstudioReferencia,
     ReferenciaPersonal,
     Patrimonio,
+    ClienteConfiguracionFormulario,
+    ClientePoliticaConfiguracion,
 )
 from .serializers import (
     SolicitudCreateSerializer,
@@ -68,11 +75,16 @@ from .serializers import (
     EstudioDetalleSerializer,
     ReferenciaPersonalSerializer,
     PatrimonioSerializer,
+    ClienteConfiguracionFormularioSerializer,
+    ClientePoliticaConfiguracionSerializer,
 )
 
 # ======================================================================================
 # Helpers
 # ======================================================================================
+
+
+
 
 def _map_ref_payload(r):
     """
@@ -367,15 +379,30 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 ),
                 solicitud=solicitud,
             )
-            if solicitud.analista.email:
+            # Enviar notificación al analista
+            if solicitud.analista and solicitud.analista.email:
+                asunto = f"Nueva solicitud asignada #{solicitud.id}"
+                mensaje = (
+                    f"Se ha creado la solicitud #{solicitud.id} para "
+                    f"{solicitud.candidato.nombre} {solicitud.candidato.apellido}."
+                )
+                context = {
+                    "subject": asunto,
+                    "saludo": f"Hola {solicitud.analista.first_name or solicitud.analista.username}",
+                    "mensaje": mensaje,
+                    "candidato_nombre": f"{solicitud.candidato.nombre} {solicitud.candidato.apellido}",
+                    "candidato_cedula": solicitud.candidato.cedula,
+                    "solicitud_id": solicitud.id,
+                    "estado": getattr(solicitud, "estado", "Creada")
+                }
+                mensaje_html = render_to_string("emails/notificacion_general.html", context)
+                mensaje_txt = render_to_string("emails/notificacion_general.txt", context)
                 send_mail(
-                    subject=f"Nueva solicitud asignada #{solicitud.id}",
-                    message=(
-                        f"Se ha creado la solicitud #{solicitud.id} para "
-                        f"{solicitud.candidato.nombre} {solicitud.candidato.apellido}."
-                    ),
+                    subject=asunto,
+                    message=mensaje_txt,
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[solicitud.analista.email],
+                    html_message=mensaje_html,
                     fail_silently=True,
                 )
 
@@ -408,19 +435,50 @@ class SolicitudViewSet(viewsets.ModelViewSet):
         frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
         link = f"{frontend}/candidato"
 
+
         asunto = f"Acceso para completar su estudio (Solicitud #{solicitud.id})"
-        if temp_password:
-            cuerpo = (
-                f"Hola {cand.nombre},\n\nIngresa al portal del candidato y completa tu estudio:\n{link}\n\n"
-                f"Usuario: {user.username}\nContraseña temporal: {temp_password}\n"
-            )
-        else:
-            cuerpo = (
-                f"Hola {cand.nombre},\n\nIngresa al portal del candidato y completa tu estudio:\n{link}\n"
-                f"Si no recuerdas tu clave, solicita recuperación."
+        context_candidato = {
+                "subject": asunto,
+                "nombre": cand.nombre,
+                "apellido": cand.apellido,
+                "cedula": cand.cedula,
+                "usuario": user.username,
+                "temp_password": temp_password,
+                "link": link,
+            }
+        mensaje_html_candidato = render_to_string("emails/invitacion_candidato.html", context_candidato)
+        mensaje_txt_candidato = render_to_string("emails/invitacion_candidato.txt", context_candidato)
+        send_mail(
+                asunto,
+                mensaje_txt_candidato,
+                settings.DEFAULT_FROM_EMAIL,
+                [cand.email],
+                html_message=mensaje_html_candidato,
+                fail_silently=True,
             )
 
-        send_mail(asunto, cuerpo, settings.DEFAULT_FROM_EMAIL, [cand.email], fail_silently=True)
+            # Enviar al cliente (mensaje formal)
+        email_cliente = getattr(solicitud.empresa, "email_contacto", None)
+        if email_cliente:
+            asunto_cliente = f"Su estudio ha sido enviado al analista (Solicitud #{solicitud.id})"
+            context_cliente = {
+                "subject": asunto_cliente,
+                "nombre": cand.nombre,
+                "apellido": cand.apellido,
+                "cedula": cand.cedula,
+                "solicitud_id": solicitud.id,
+                "estado": "Su estudio ha sido enviado al analista. Espere activación.",
+            }
+            mensaje_html_cliente = render_to_string("emails/invitacion_cliente.html", context_cliente)
+            mensaje_txt_cliente = render_to_string("emails/invitacion_cliente.txt", context_cliente)
+            send_mail(
+                asunto_cliente,
+                mensaje_txt_cliente,
+                settings.DEFAULT_FROM_EMAIL,
+                [email_cliente],
+                html_message=mensaje_html_cliente,
+                fail_silently=True,
+            )
 
         try:
             solicitud.estado = getattr(getattr(Solicitud, "Estado", None), "INVITADO", "INVITADO")
@@ -442,12 +500,8 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         .prefetch_related("items", "documentos","consentimientos")
     )
     serializer_class = EstudioSerializer
-    
-    def get_serializer_class(self):
-        # lista/resumen -> liviano; detalle -> completo
-        if self.action in ["list", "resumen", "documentos"]:
-            return EstudioSerializer
-        return EstudioDetalleSerializer
+
+
     
     @action(detail=True, methods=["get", "post"])
     def referencias(self, request, pk=None):
@@ -607,7 +661,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         elif rol == "CLIENTE":
             base = qs.filter(solicitud__empresa=user.empresa)
         elif rol == "ANALISTA":
-            base = qs.filter(solicitud__analista=user)
+            base = qs  # Mostrar todos los estudios para analista
         elif rol == "CANDIDATO":
             base = qs.filter(solicitud__candidato__email=user.email)
         else:
@@ -724,11 +778,20 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         est.devolver_a_candidato(obs)
         cand = est.solicitud.candidato
         if cand and cand.email:
+            context = {
+                "subject": f"Corrección requerida en estudio #{est.id}",
+                "nombre": cand.nombre,
+                "estudio_id": est.id,
+                "observacion": obs
+            }
+            mensaje_html = render_to_string("emails/correccion_estudio.html", context)
+            mensaje_txt = render_to_string("emails/correccion_estudio.txt", context)
             send_mail(
-                subject=f"Corrección requerida en estudio #{est.id}",
-                message=obs,
+                subject=context["subject"],
+                message=mensaje_txt,
                 from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@estudio.local"),
                 recipient_list=[cand.email],
+                html_message=mensaje_html,
                 fail_silently=True,
             )
         return Response(EstudioSerializer(est, context={"request": request}).data)
@@ -1691,3 +1754,71 @@ class PatrimonioViewSet(BaseRolMixin, viewsets.ModelViewSet):
         self.validar_acceso_a_estudio(est)
         self._bloqueo_si_no_editable(est)
         super().perform_destroy(instance)
+    
+    # ===================== ViewSet para configuración de formulario cliente =====================
+class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
+    queryset = ClienteConfiguracionFormulario.objects.all()
+    serializer_class = ClienteConfiguracionFormularioSerializer
+
+    def create(self, request, *args, **kwargs):
+        data = request.data
+        # Si recibimos un array, usar many=True
+        is_many = isinstance(data, list)
+        serializer = self.get_serializer(data=data, many=is_many)
+        serializer.is_valid(raise_exception=True)
+        emp = getattr(request.user, "empresa", None)
+        if not emp:
+            return Response({"detail": "El usuario cliente no tiene empresa asociada."}, status=status.HTTP_400_BAD_REQUEST)
+        # Guardar cada configuración asociada a la empresa
+        objs = []
+        for item in serializer.validated_data if is_many else [serializer.validated_data]:
+            obj = ClienteConfiguracionFormulario.objects.create(
+                empresa=emp,
+                item=item["item"],
+                subitem=item["subitem"],
+                excluido=item.get("excluido", True)
+            )
+            objs.append(obj)
+        # Serializar la respuesta
+        out_serializer = self.get_serializer(objs, many=True)
+        return Response(out_serializer.data, status=status.HTTP_201_CREATED)      
+    
+    # ViewSet para políticas configurables del cliente
+class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
+    queryset = ClientePoliticaConfiguracion.objects.all()
+    serializer_class = ClientePoliticaConfiguracionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        empresa_id = self.request.query_params.get('empresa')
+        qs = super().get_queryset()
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+        return qs.filter(usuario=user)
+
+
+    def perform_create(self, serializer):
+        # Al crear, si ya existe una política bloqueada para la empresa y criterio/opcion, impedir crear si no es superadmin
+        empresa = serializer.validated_data.get('empresa')
+        criterio = serializer.validated_data.get('criterio')
+        opcion = serializer.validated_data.get('opcion')
+        existe_bloqueada = ClientePoliticaConfiguracion.objects.filter(
+            empresa=empresa, criterio=criterio, opcion=opcion, bloqueado=True
+        ).exists()
+        if existe_bloqueada and not self.request.user.is_superuser:
+            raise ValidationError('La configuración de políticas está bloqueada. Contacta al administrador.')
+        serializer.save(usuario=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Si está bloqueado y no es superadmin, impedir edición
+        if instance.bloqueado and not request.user.is_superuser:
+            return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.bloqueado and not request.user.is_superuser:
+            return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
+        return super().partial_update(request, *args, **kwargs)

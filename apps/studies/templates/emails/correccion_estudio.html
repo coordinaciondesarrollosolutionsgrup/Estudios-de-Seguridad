@@ -1,0 +1,7 @@
+{% extends "emails/base_email.html" %}
+{% block content %}
+<p>Estimado candidato,</p>
+<p>Se ha solicitado una corrección en el estudio <b>#{{ estudio_id }}</b>.</p>
+<p><b>Observación:</b> {{ observacion }}</p>
+<p>Por favor, revise la información en el sistema y realice las acciones necesarias.</p>
+{% endblock %}

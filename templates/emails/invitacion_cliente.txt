@@ -1,0 +1,9 @@
+Estimado cliente,
+
+El candidato {{ nombre }} {{ apellido }} (Cédula: {{ cedula }}) ha sido invitado a completar su estudio.
+Número de solicitud: {{ solicitud_id }}
+Estado actual: {{ estado }}
+
+Gracias por confiar en nuestro servicio.
+Atentamente,
+El equipo de Coordinación de Estudios.

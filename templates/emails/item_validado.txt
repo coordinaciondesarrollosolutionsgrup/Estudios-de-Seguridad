@@ -1,0 +1,8 @@
+Estimado cliente,
+
+Le informamos que el ítem '{{ tipo }}' del estudio #{{ estudio_id }} correspondiente al candidato {{ nombre }} (Cédula: {{ cedula }}) ha sido validado.
+
+Progreso actual del estudio: {{ progreso }}%
+
+Gracias por confiar en nuestro servicio.
+Equipo de Coordinación de Estudios.

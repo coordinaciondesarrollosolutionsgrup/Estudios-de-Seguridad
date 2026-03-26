@@ -1,0 +1,8 @@
+{% extends "emails/base_email.html" %}
+{% block content %}
+<p>Estimado cliente,</p>
+<p>Le informamos que el ítem <b>'{{ tipo }}'</b> del estudio #{{ estudio_id }} correspondiente al candidato <b>{{ nombre }}</b> (Cédula: {{ cedula }}) ha sido validado.</p>
+<ul>
+  <li><b>Progreso actual del estudio:</b> {{ progreso }}%</li>
+</ul>
+{% endblock %}

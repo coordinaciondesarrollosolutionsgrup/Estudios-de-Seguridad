@@ -124,6 +124,9 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
             "grupo_sanguineo","sexo","sexo_label","estado_civil","estado_civil_label",
             "fecha_expedicion","lugar_expedicion",
 
+            # nuevos campos biográficos
+            "nacionalidad","discapacidad","idiomas","estado_migratorio",
+
             # opcionales
             "libreta_militar_numero","libreta_militar_clase","libreta_militar_distrito",
             "licencia_transito_numero","licencia_transito_categoria","licencia_transito_vence",

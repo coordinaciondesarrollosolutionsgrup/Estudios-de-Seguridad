@@ -1,0 +1,8 @@
+{% extends "emails/base_email.html" %}
+{% block content %}
+<p>Hola {{ nombre }},</p>
+<p>Se requiere una corrección en tu estudio <b>#{{ estudio_id }}</b>.</p>
+<p><b>Observación del analista:</b></p>
+<p style="background:#f8f9fa;border-left:4px solid #1976d2;padding:12px 16px;">{{ observacion }}</p>
+<p>Por favor ingresa al sistema y realiza los ajustes necesarios.</p>
+{% endblock %}

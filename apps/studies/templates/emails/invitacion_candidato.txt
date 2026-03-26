@@ -1,0 +1,14 @@
+
+Estimado candidato,
+
+Ha recibido una invitación para participar en un estudio.
+
+Nombre: {{ nombre }} {{ apellido }}
+Cédula: {{ cedula }}
+Usuario: {{ usuario }}
+{% if temp_password %}Contraseña temporal: {{ temp_password }}{% endif %}
+Enlace de acceso: {{ link }}
+
+Por favor, revise la información en el sistema y siga las instrucciones proporcionadas.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

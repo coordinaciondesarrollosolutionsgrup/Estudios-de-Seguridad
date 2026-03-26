@@ -21,6 +21,7 @@ from .models import (
 )
 from apps.candidates.models import Candidato
 from apps.accounts.models import Empresa
+from .models import ClienteConfiguracionFormulario
 
 
 # -------------------- Candidato / Solicitud --------------------
@@ -453,6 +454,7 @@ class LaboralSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "candidato", "creado"]
         extra_kwargs = {"estudio": {"required": False}}
 
+
 class EstudioReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model  = EstudioReferencia
@@ -499,3 +501,24 @@ class EstudioDetalleSerializer(serializers.ModelSerializer):
             data.pop("score_cuantitativo", None)
             data.pop("nivel_cualitativo", None)
         return data
+
+
+
+class ClienteConfiguracionFormularioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClienteConfiguracionFormulario
+        fields = ['id', 'empresa', 'item', 'subitem', 'excluido', 'creado', 'actualizado']
+        read_only_fields = ['id', 'creado', 'actualizado']
+
+
+# Serializer para políticas configurables del cliente
+from .models import ClientePoliticaConfiguracion
+
+class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClientePoliticaConfiguracion
+        fields = [
+            'id', 'empresa', 'usuario', 'criterio', 'opcion',
+            'no_relevante', 'bloqueado', 'creado', 'actualizado'
+        ]
+        read_only_fields = ['id', 'creado', 'actualizado']

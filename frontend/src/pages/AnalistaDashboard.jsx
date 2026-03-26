@@ -771,6 +771,7 @@ export default function AnalistaDashboard() {
   const TabPorTipo = ({ tipos }) => {
     const wanted = new Set(tipos.map((t) => t.toUpperCase()));
     const items = getItemsBy((it) => wanted.has((it.tipo || "").toUpperCase()));
+
     const [checked, setChecked] = useState({});
     const any = Object.values(checked).some(Boolean);
 
@@ -1667,6 +1668,9 @@ function Detalle({
                 ["ANEXOS", "Anexos"],
                 ["CENTRALES", "Centrales"],
                 ["REFERENCIAS", "Referencias"],   // <<< TAB APARTE PARA REFERENCIAS
+                // ...existing code...
+                ["INFO_FAMILIAR", "Info Familiar"],
+                ["DESCRIPCION_VIVIENDA", "Descripción Vivienda"],
               ].map(([key, label]) => (
                 <button
                   key={key}
@@ -1686,10 +1690,12 @@ function Detalle({
               {tab === "ACADEMICO" && <TabPorTipo tipos={["ACADEMICO", "TITULOS_ACADEMICOS"]} />}
               {tab === "LABORAL" && <TabPorTipo tipos={["LABORAL", "CERT_LABORALES"]} />}
               {tab === "ECONOMICA" && <TabPorTipo tipos={["INFO_ECONOMICA", "ECONOMICA"]} />}
-              {tab === "PATRIMONIO" && <TabPatrimonio />}        {/* <<< render Patrimonio */}
+              {tab === "PATRIMONIO" && <TabPatrimonio />}
               {tab === "ANEXOS" && <TabPorTipo tipos={["VISITA_DOMICILIARIA"]} />}
               {tab === "CENTRALES" && <TabCentrales />}
-              {tab === "REFERENCIAS" && <TabReferencias />}       {/* <<< render Referencias */}
+              {tab === "REFERENCIAS" && <TabReferencias />}
+              {tab === "INFO_FAMILIAR" && <TabPorTipo tipos={["INFO_FAMILIAR"]} />}
+              {tab === "DESCRIPCION_VIVIENDA" && <TabPorTipo tipos={["DESCRIPCION_VIVIENDA"]} />}
             </div>
           </div>
         </div>

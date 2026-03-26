@@ -1,0 +1,18 @@
+{% extends "emails/base_email.html" %}
+
+{% block subject %}
+Nueva solicitud de estudio #{{ solicitud_id }}
+{% endblock %}
+
+{% block content %}
+<p>Estimado cliente,</p>
+
+<p>
+  Se ha creado la solicitud de estudio <strong>#{{ solicitud_id }}</strong>
+  para el candidato <strong>{{ nombre }}</strong> (Cédula: {{ cedula }}).
+</p>
+
+<p>Estado: <strong>{{ estado }}</strong></p>
+
+<p>Por favor, revise la información en el sistema.</p>
+{% endblock %}

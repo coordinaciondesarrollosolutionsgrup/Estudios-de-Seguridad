@@ -79,6 +79,12 @@ class Candidato(models.Model):
     ]
     estado_civil = models.CharField(max_length=20, choices=ESTADO_CIVIL, blank=True, null=True)
 
+    # Campos biográficos adicionales
+    nacionalidad = models.CharField(max_length=80, blank=True, null=True)
+    discapacidad = models.CharField(max_length=120, blank=True, null=True)
+    idiomas = models.CharField(max_length=200, blank=True, null=True, help_text="Idiomas separados por coma")
+    estado_migratorio = models.CharField(max_length=120, blank=True, null=True)
+
     # Dirección
     direccion = models.CharField(max_length=200, blank=True, null=True)
     barrio = models.CharField(max_length=120, blank=True, null=True)
@@ -192,34 +198,7 @@ class Conviviente(models.Model):
 
     def __str__(self):
         return f"Conviviente: {self.nombre_apellido}"
-        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="parientes", on_delete=models.CASCADE)
-        parentesco = models.CharField(max_length=30)
-        nombre_apellido = models.CharField(max_length=150)
-        ocupacion = models.CharField(max_length=100, blank=True, null=True)
-        telefono = models.CharField(max_length=30, blank=True, null=True)
-        ciudad = models.CharField(max_length=100, blank=True, null=True)
-        vive_con_el = models.BooleanField(default=False)
 
-        def __str__(self):
-            return f"{self.parentesco}: {self.nombre_apellido}"
 
-    # -------------------- Hijos --------------------
-    class Hijo(models.Model):
-        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="hijos", on_delete=models.CASCADE)
-        nombre_apellido = models.CharField(max_length=150)
-        ocupacion = models.CharField(max_length=100, blank=True, null=True)
-        vive_con_el = models.BooleanField(default=False)
 
-        def __str__(self):
-            return f"Hijo: {self.nombre_apellido}"
 
-    # -------------------- Convivientes --------------------
-    class Conviviente(models.Model):
-        informacion_familiar = models.ForeignKey("InformacionFamiliar", related_name="convivientes", on_delete=models.CASCADE)
-        parentesco = models.CharField(max_length=30)
-        nombre_apellido = models.CharField(max_length=150)
-        ocupacion = models.CharField(max_length=100, blank=True, null=True)
-        telefono = models.CharField(max_length=30, blank=True, null=True)
-
-        def __str__(self):
-            return f"Conviviente: {self.nombre_apellido}"

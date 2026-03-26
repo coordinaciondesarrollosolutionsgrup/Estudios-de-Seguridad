@@ -1,0 +1,12 @@
+Estimado cliente,
+
+Le informamos que se ha creado una nueva solicitud de estudio.
+
+Nombre: {{ nombre }}
+Cédula: {{ cedula }}
+Número de solicitud: {{ solicitud_id }}
+
+Estado actual: {{ estado }}
+
+Gracias por confiar en nuestro servicio.
+Equipo de Coordinación de Estudios.

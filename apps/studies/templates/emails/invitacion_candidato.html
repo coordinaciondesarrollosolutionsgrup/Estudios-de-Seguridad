@@ -1,0 +1,15 @@
+Estimado candidato,
+
+Ha recibido una invitación para participar en un estudio.
+
+<ul>
+  <li><b>Nombre:</b> {{ nombre }} {{ apellido }}</li>
+  <li><b>Cédula:</b> {{ cedula }}</li>
+  <li><b>Usuario:</b> {{ usuario }}</li>
+  {% if temp_password %}<li><b>Contraseña temporal:</b> {{ temp_password }}</li>{% endif %}
+  <li><b>Enlace de acceso:</b> <a href="{{ link }}">Ir a la plataforma</a></li>
+</ul>
+
+Por favor, revise la información en el sistema y siga las instrucciones proporcionadas.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

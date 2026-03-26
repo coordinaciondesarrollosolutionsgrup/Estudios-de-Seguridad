@@ -1,6 +1,39 @@
+
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
+
+class ClientePoliticaConfiguracion(models.Model):
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='politica_configuracion')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='politica_configuracion')
+    criterio = models.CharField(max_length=50)  # Ej: 'delitos', 'residencia', 'transito', 'centrales', 'drogas'
+    opcion = models.CharField(max_length=50)    # Ej: 'riñas', 'zonas_perifericas', 'comparendos', etc.
+    no_relevante = models.BooleanField(default=True)
+    bloqueado = models.BooleanField(default=False)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('empresa', 'criterio', 'opcion')
+
+    def __str__(self):
+        return f"{self.empresa} - {self.criterio} - {self.opcion} (no relevante: {self.no_relevante})"
+
+# Configuración de ítems/subítems excluidos por cliente
+class ClienteConfiguracionFormulario(models.Model):
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='configuracion_formulario')
+    item = models.CharField(max_length=100)
+    subitem = models.CharField(max_length=100)
+    excluido = models.BooleanField(default=True)  # Si está excluido, no aparece en formularios
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('empresa', 'item', 'subitem')
+
+    def __str__(self):
+        return f"{self.empresa} excluye {self.subitem} de {self.item}"
+
 
 class EstudioReferencia(models.Model):
     estudio = models.ForeignKey("studies.Estudio", related_name="referencias", on_delete=models.CASCADE)
@@ -68,6 +101,7 @@ class Estudio(models.Model):
         return "BAJO"
 
     def recalcular(self):
+        # Calcular progreso y score considerando todos los ítems
         items = self.items.all()
         total = items.count() or 1
         done = items.filter(estado__in=["VALIDADO","CERRADO"]).count()
@@ -111,6 +145,8 @@ class ItemTipo(models.TextChoices):
     ANEXOS_FOTOGRAFICOS = "ANEXOS_FOTOGRAFICOS"
     REFERENCIAS_PERSONALES = "REFERENCIAS_PERSONALES"     # 👈 nuevo
     INFO_PATRIMONIO        = "INFO_PATRIMONIO" 
+
+
     
 class ReferenciaPersonal(models.Model):
     estudio   = models.ForeignKey("studies.Estudio", related_name="refs_personales", on_delete=models.CASCADE)

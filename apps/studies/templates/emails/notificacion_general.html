@@ -1,0 +1,16 @@
+{% extends "emails/base_email.html" %}
+{% block content %}
+	<h1>Nueva solicitud de estudio <span style="color:#ff6b6b">#{{ solicitud_id }}</span></h1>
+	<div class="info">
+		Estimado analista,<br><br>
+		Se le ha asignado una nueva solicitud de estudio.<br><br>
+		<ul>
+			<li><b>Nombre del candidato:</b> {{ candidato_nombre }}</li>
+			<li><b>Cédula del candidato:</b> {{ candidato_cedula }}</li>
+			<li><b>Número de solicitud:</b> {{ solicitud_id }}</li>
+		</ul>
+	</div>
+	<div class="estado">Estado: {{ estado }}</div>
+	<div class="info">Por favor, revise la información en el sistema.</div>
+	<a class="cta" href="https://conecta.econfia.co/" target="_blank">Ir a la plataforma</a>
+{% endblock %}

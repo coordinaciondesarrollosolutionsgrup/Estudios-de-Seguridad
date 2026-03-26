@@ -29,10 +29,15 @@ class DocumentoViewSet(viewsets.ModelViewSet):
 
     # 🔧 Importante: inyectar "nombre" antes de validar (evita el 400)
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()  # QueryDict -> mutable
         f = request.FILES.get("archivo")
-        if f and not data.get("nombre"):
-            data["nombre"] = f.name  # default
+        # Extraer los valores como string (no lista)
+        tipo = request.data.get("tipo")
+        nombre = request.data.get("nombre") or (f.name if f else None)
+        data = {
+            "tipo": tipo,
+            "nombre": nombre,
+            "archivo": f,
+        }
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)

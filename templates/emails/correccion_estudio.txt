@@ -1,0 +1,8 @@
+Hola {{ nombre }},
+
+Se requiere una corrección en tu estudio #{{ estudio_id }}.
+
+Observación del analista:
+{{ observacion }}
+
+Por favor ingresa al sistema y realiza los ajustes necesarios.

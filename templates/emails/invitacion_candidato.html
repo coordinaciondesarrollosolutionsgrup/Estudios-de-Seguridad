@@ -1,0 +1,9 @@
+{% extends "emails/base_email.html" %}
+{% block content %}
+<p>Estimado cliente,</p>
+<p>El candidato <b>{{ nombre }}</b> (Cédula: {{ cedula }}) ha sido invitado a completar su estudio.</p>
+<ul>
+  <li><b>Número de solicitud:</b> {{ solicitud_id }}</li>
+</ul>
+<p>Estado actual: Invitación enviada al candidato.</p>
+{% endblock %}

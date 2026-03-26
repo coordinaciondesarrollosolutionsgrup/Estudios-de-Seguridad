@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import api from "../api/axios";
+import { useOutletContext } from "react-router-dom";
+import { EstudioEditableProvider, useEstudioEditable } from "../context/EstudioEditableContext";
 
 const inputCls =
   "w-full rounded-lg border border-white/10 bg-white/10 p-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/30";
@@ -51,12 +53,14 @@ function AccordionItem({ title, subtitle, defaultOpen = false, children }) {
   );
 }
 
-const Input = ({ className = "", ...rest }) => (
-  <input className={`${inputCls} mt-1 ${className}`} {...rest} />
-);
-const TextArea = ({ className = "", rows = 4, ...rest }) => (
-  <textarea rows={rows} className={`${inputCls} mt-1 ${className}`} {...rest} />
-);
+const Input = ({ className = "", ...rest }) => {
+  const { editable } = useEstudioEditable();
+  return <input className={`${inputCls} mt-1 ${className}`} disabled={!editable} {...rest} />;
+};
+const TextArea = ({ className = "", rows = 4, ...rest }) => {
+  const { editable } = useEstudioEditable();
+  return <textarea rows={rows} className={`${inputCls} mt-1 ${className}`} disabled={!editable} {...rest} />;
+};
 
 const emptyPariente = {
   parentesco: "",
@@ -74,7 +78,18 @@ const emptyConviviente = {
   telefono: "",
 };
 
-export default function CandidatoInfoFamiliar() {
+export default function CandidatoInfoFamiliar(props) {
+  const outlet = useOutletContext() || {};
+  const studyId = outlet?.studyId ?? null;
+  return (
+    <EstudioEditableProvider studyId={studyId}>
+      <CandidatoInfoFamiliarInner {...props} />
+    </EstudioEditableProvider>
+  );
+}
+
+function CandidatoInfoFamiliarInner(props) {
+  const { editable, loading: loadingEditable } = useEstudioEditable();
   const [loading, setLoading] = useState(true);
   const [info, setInfo] = useState(null);
   const [draft, setDraft] = useState({
