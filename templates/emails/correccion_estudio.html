@@ -1,8 +1,25 @@
 {% extends "emails/base_email.html" %}
 {% block content %}
-<p>Hola {{ nombre }},</p>
-<p>Se requiere una corrección en tu estudio <b>#{{ estudio_id }}</b>.</p>
-<p><b>Observación del analista:</b></p>
-<p style="background:#f8f9fa;border-left:4px solid #1976d2;padding:12px 16px;">{{ observacion }}</p>
-<p>Por favor ingresa al sistema y realiza los ajustes necesarios.</p>
+<p style="font-size:13px;font-weight:600;color:#dc2626;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px 0;">Corrección Requerida</p>
+<h1 style="margin:0 0 24px 0;font-size:24px;color:#1e293b;">
+  Corrección en estudio <span style="color:#2563eb;">#{{ estudio_id }}</span>
+</h1>
+
+<p style="margin:0 0 16px 0;color:#475569;">Hola <strong>{{ nombre }}</strong>,</p>
+<p style="margin:0 0 24px 0;color:#475569;">
+  El analista ha revisado tu estudio y requiere que realices algunos ajustes. Por favor lee con atención la observación a continuación.
+</p>
+
+<div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:24px;">
+  <p style="margin:0 0 6px 0;color:#dc2626;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Observación del analista</p>
+  <p style="margin:0;color:#1e293b;font-size:15px;line-height:1.6;">{{ observacion }}</p>
+</div>
+
+<p style="margin:0 0 24px 0;color:#475569;">Por favor ingresa a la plataforma, revisa la observación y realiza los ajustes solicitados a la brevedad.</p>
+
+<div style="text-align:center;">
+  <a href="https://conecta.econfia.co/" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#ffffff;padding:13px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.5px;">
+    Ir a mi estudio
+  </a>
+</div>
 {% endblock %}

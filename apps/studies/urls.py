@@ -4,7 +4,7 @@ from .views import (
     SolicitudViewSet, EstudioViewSet, EstudioItemViewSet,
     AcademicoViewSet, LaboralViewSet, EconomicaViewSet, AnexoFotoViewSet, EstudioReferenciaViewSet,
     ReferenciaPersonalViewSet, PatrimonioViewSet, ClienteConfiguracionFormularioViewSet,
-    ClientePoliticaConfiguracionViewSet,
+    ClientePoliticaConfiguracionViewSet, HistorialConfiguracionViewSet,
 )
 from .views_pdf import estudio_pdf
 
@@ -22,6 +22,7 @@ router.register(r"patrimonios", PatrimonioViewSet, basename="patrimonio")
 
 router.register(r"config-formulario", ClienteConfiguracionFormularioViewSet, basename="config-formulario")
 router.register(r"politicas", ClientePoliticaConfiguracionViewSet, basename="politicas")
+router.register(r"historial-config", HistorialConfiguracionViewSet, basename="historial-config")
 
 
 urlpatterns = [

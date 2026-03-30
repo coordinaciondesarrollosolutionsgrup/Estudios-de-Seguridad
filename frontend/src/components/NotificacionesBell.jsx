@@ -55,7 +55,7 @@ export default function NotificacionesBell() {
   }, [open]);
 
   async function marcarTodasLeidas() {
-    await api.post("/api/notificaciones/marcar_todas_leidas/");
+    await api.post("/api/notificaciones/marcar_leidas/");
     await load();
   }
 

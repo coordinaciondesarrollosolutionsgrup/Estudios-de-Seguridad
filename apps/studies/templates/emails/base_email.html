@@ -4,59 +4,52 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block subject %}Notificación{% endblock %}</title>
-
-  <style>
-    body {
-      background: linear-gradient(135deg, #4f8cff 0%, #ff6b6b 100%);
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', Arial, sans-serif;
-    }
-    .container {
-      max-width: 600px;
-      margin: 60px auto;
-      background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
-      padding: 40px 32px;
-      text-align: center;
-    }
-    .logo {
-      width: 120px;
-      margin-bottom: 24px;
-    }
-    .content {
-      text-align: left;
-      font-size: 1.05rem;
-      color: #222;
-      line-height: 1.5;
-    }
-    .footer {
-      margin-top: 32px;
-      color: #888;
-      font-size: 12px;
-      text-align: center;
-    }
-    a {
-      color: #4f8cff;
-      text-decoration: underline;
-    }
-  </style>
 </head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
 
-<body>
-  <div class="container">
-    <img class="logo" src="https://conecta.econfia.co/static/admin/img/logo.png" alt="Logo" />
+          <!-- HEADER -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:32px 40px;text-align:center;">
+              <img src="https://conecta.econfia.co/static/img/logo_white.png"
+                   alt="Econfia"
+                   width="160"
+                   style="max-width:160px;height:auto;display:block;margin:0 auto;"
+                   onerror="this.style.display='none';document.getElementById('logo-text').style.display='block';" />
+              <div id="logo-text" style="display:none;color:#ffffff;font-size:28px;font-weight:800;letter-spacing:2px;">ECONFIA</div>
+              <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:8px 0 0 0;letter-spacing:1px;text-transform:uppercase;">Sistema de Estudios de Seguridad</p>
+            </td>
+          </tr>
 
-    <div class="content">
-      {% block content %}{% endblock %}
-    </div>
+          <!-- CONTENT -->
+          <tr>
+            <td style="padding:40px 40px 32px 40px;color:#1e293b;font-size:15px;line-height:1.7;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
 
-    <div class="footer">
-      Este mensaje fue generado automáticamente por el sistema de estudios.<br />
-      No responda a este correo.<br />
-      <a href="https://conecta.econfia.co/">conecta.econfia.co</a>
-    </div>
-  </div>
+          <!-- DIVIDER -->
+          <tr>
+            <td style="padding:0 40px;">
+              <hr style="border:none;border-top:1px solid #e2e8f0;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="padding:24px 40px;text-align:center;color:#94a3b8;font-size:12px;line-height:1.6;">
+              Este mensaje fue generado automáticamente por el sistema de estudios.<br />
+              Por favor no responda a este correo.<br />
+              <a href="https://conecta.econfia.co/" style="color:#2563eb;text-decoration:none;font-weight:600;">conecta.econfia.co</a>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>

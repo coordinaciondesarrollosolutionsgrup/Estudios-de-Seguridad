@@ -113,6 +113,10 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
     foto_url = serializers.SerializerMethodField()
     soportes = serializers.SerializerMethodField()
 
+    # Datos familiares y de vivienda
+    informacion_familiar  = serializers.SerializerMethodField()
+    descripcion_vivienda  = serializers.SerializerMethodField()
+
     class Meta:
         model = Candidato
         fields = [
@@ -149,6 +153,9 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
             # nuevos auxiliares
             "municipio","departamento",
             "foto_url","soportes",
+
+            # familiares y vivienda
+            "informacion_familiar","descripcion_vivienda",
         ]
 
     def get_municipio(self, obj):
@@ -156,6 +163,24 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
 
     def get_departamento(self, obj):
         return obj.departamento_nombre or None
+
+    def get_informacion_familiar(self, obj):
+        try:
+            info = getattr(obj, "informacion_familiar", None)
+            if not info:
+                return None
+            return InformacionFamiliarSerializer(info).data
+        except Exception:
+            return None
+
+    def get_descripcion_vivienda(self, obj):
+        try:
+            dv = getattr(obj, "descripcion_vivienda", None)
+            if not dv:
+                return None
+            return DescripcionViviendaSerializer(dv).data
+        except Exception:
+            return None
 
     def get_foto_url(self, obj):
         request = self.context.get("request")

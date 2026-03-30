@@ -60,6 +60,7 @@ from .models import (
     Patrimonio,
     ClienteConfiguracionFormulario,
     ClientePoliticaConfiguracion,
+    HistorialConfiguracion,
 )
 from .serializers import (
     SolicitudCreateSerializer,
@@ -77,6 +78,7 @@ from .serializers import (
     PatrimonioSerializer,
     ClienteConfiguracionFormularioSerializer,
     ClientePoliticaConfiguracionSerializer,
+    HistorialConfiguracionSerializer,
 )
 
 # ======================================================================================
@@ -354,9 +356,21 @@ class SolicitudViewSet(viewsets.ModelViewSet):
         if not emp:
             raise ValidationError({"empresa": ["El usuario cliente no tiene empresa asociada."]})
 
+        # Verificar si existen políticas o subítems excluidos (NO relevantes) para la empresa
+        from .models import ClientePoliticaConfiguracion, ClienteConfiguracionFormulario
+        politicas_excluidas = ClientePoliticaConfiguracion.objects.filter(empresa=emp, no_relevante=True).exists()
+        subitems_excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=emp, excluido=True).exists()
+
         solicitud = serializer.save(empresa=emp)
         solicitud.estado = getattr(getattr(Solicitud, "Estado", None), "PENDIENTE_INVITACION", "PENDIENTE_INVITACION")
         solicitud.save(update_fields=["estado"])
+
+        # Si se crea el Estudio aquí, marcarlo como a_consideracion_cliente si corresponde
+        if hasattr(solicitud, "estudio"):
+            estudio = solicitud.estudio
+            if politicas_excluidas or subitems_excluidos:
+                estudio.a_consideracion_cliente = True
+                estudio.save(update_fields=["a_consideracion_cliente"])
 
         User = get_user_model()
         analista = (
@@ -442,6 +456,7 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 "nombre": cand.nombre,
                 "apellido": cand.apellido,
                 "cedula": cand.cedula,
+                "solicitud_id": solicitud.id,
                 "usuario": user.username,
                 "temp_password": temp_password,
                 "link": link,
@@ -1772,13 +1787,27 @@ class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
         # Guardar cada configuración asociada a la empresa
         objs = []
         for item in serializer.validated_data if is_many else [serializer.validated_data]:
-            obj = ClienteConfiguracionFormulario.objects.create(
+            excluido = item.get("excluido", True)
+            obj, created = ClienteConfiguracionFormulario.objects.update_or_create(
                 empresa=emp,
                 item=item["item"],
                 subitem=item["subitem"],
-                excluido=item.get("excluido", True)
+                defaults={"excluido": excluido}
             )
             objs.append(obj)
+            # Registrar en historial (no bloquea el flujo si falla)
+            try:
+                accion = "Excluyó subítem" if excluido else "Incluyó subítem"
+                HistorialConfiguracion.objects.create(
+                    empresa=emp,
+                    usuario=request.user,
+                    tipo='formulario',
+                    accion=accion,
+                    item=item["item"].upper(),
+                    subitem=item["subitem"],
+                )
+            except Exception:
+                pass
         # Serializar la respuesta
         out_serializer = self.get_serializer(objs, many=True)
         return Response(out_serializer.data, status=status.HTTP_201_CREATED)      
@@ -1799,26 +1828,87 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
 
 
     def perform_create(self, serializer):
-        # Al crear, si ya existe una política bloqueada para la empresa y criterio/opcion, impedir crear si no es superadmin
-        empresa = serializer.validated_data.get('empresa')
+        emp = getattr(self.request.user, 'empresa', None)
         criterio = serializer.validated_data.get('criterio')
         opcion = serializer.validated_data.get('opcion')
         existe_bloqueada = ClientePoliticaConfiguracion.objects.filter(
-            empresa=empresa, criterio=criterio, opcion=opcion, bloqueado=True
+            empresa=emp, criterio=criterio, opcion=opcion, bloqueado=True
         ).exists()
         if existe_bloqueada and not self.request.user.is_superuser:
             raise ValidationError('La configuración de políticas está bloqueada. Contacta al administrador.')
-        serializer.save(usuario=self.request.user)
+        serializer.save(usuario=self.request.user, empresa=emp, bloqueado=True)
+        try:
+            no_relevante = serializer.validated_data.get('no_relevante', True)
+            accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+            HistorialConfiguracion.objects.create(
+                empresa=emp,
+                usuario=self.request.user,
+                tipo='politica',
+                accion=accion,
+                item=criterio.upper(),
+                subitem=opcion,
+            )
+        except Exception:
+            pass
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Si está bloqueado y no es superadmin, impedir edición
         if instance.bloqueado and not request.user.is_superuser:
             return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
-        return super().update(request, *args, **kwargs)
+        response = super().update(request, *args, **kwargs)
+        instance.refresh_from_db()
+        instance.bloqueado = True
+        instance.save(update_fields=['bloqueado'])
+        try:
+            no_relevante = request.data.get('no_relevante')
+            if no_relevante is not None:
+                accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+                HistorialConfiguracion.objects.create(
+                    empresa=instance.empresa,
+                    usuario=request.user,
+                    tipo='politica',
+                    accion=accion,
+                    item=instance.criterio.upper(),
+                    subitem=instance.opcion,
+                )
+        except Exception:
+            pass
+        return response
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.bloqueado and not request.user.is_superuser:
             return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
-        return super().partial_update(request, *args, **kwargs)
+        response = super().partial_update(request, *args, **kwargs)
+        instance.refresh_from_db()
+        instance.bloqueado = True
+        instance.save(update_fields=['bloqueado'])
+        try:
+            no_relevante = request.data.get('no_relevante')
+            if no_relevante is not None:
+                accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+                HistorialConfiguracion.objects.create(
+                    empresa=instance.empresa,
+                    usuario=request.user,
+                    tipo='politica',
+                    accion=accion,
+                    item=instance.criterio.upper(),
+                    subitem=instance.opcion,
+                )
+        except Exception:
+            pass
+        return response
+
+
+class HistorialConfiguracionViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = HistorialConfiguracionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        emp = getattr(user, 'empresa', None)
+        if emp:
+            return HistorialConfiguracion.objects.filter(empresa=emp)
+        if user.is_superuser:
+            return HistorialConfiguracion.objects.all()
+        return HistorialConfiguracion.objects.none()

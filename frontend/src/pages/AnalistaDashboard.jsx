@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/axios";
 import NotificacionesBell from "../components/NotificacionesBell";
 import ThreeBackground from "../components/ThreeBackground";
+import { useToast } from "../components/Toast";
+
+// Paginación para lista de estudios
+const PAGE_SIZE = 10;
 
 /* --------------------- UI helpers --------------------- */
 const Badge = ({ color = "slate", children }) => {
@@ -36,6 +40,7 @@ const estadoColor = (estado) => {
     default: return "gray";
   }
 };
+
 const riesgoColor = (nivel) => {
   const n = (nivel || "").toUpperCase();
   switch (n) {
@@ -46,6 +51,7 @@ const riesgoColor = (nivel) => {
     default: return "gray";
   }
 };
+
 // Visible: si está VALIDADO y tiene comentario/irregularidad => OBSERVADO
 const estadoVisible = (it) => {
   const hasObs = !!(it?.comentario || it?.irregularidad);
@@ -74,6 +80,7 @@ const isLocalUrl = (href) => {
     return href.startsWith("/") || href.startsWith("media/");
   }
 };
+
 const openProtected = async (url, filename = "archivo") => {
   try {
     const { data, headers } = await api.get(url, { responseType: "blob" });
@@ -104,7 +111,9 @@ const valueOrDash = (v) => {
   }
   return String(v);
 };
+
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString() : "—");
+
 const titleCase = (s) =>
   valueOrDash(String(s || "").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase()));
 
@@ -137,6 +146,7 @@ const normalizeSoportes = (s) => {
 const money = (n) =>
   typeof n === "number" ? n.toLocaleString() :
   (n && !isNaN(Number(n))) ? Number(n).toLocaleString() : "—";
+
 const yesNo = (v) => (v === true ? "Sí" : v === false ? "No" : "—");
 
 /* =======================================================
@@ -144,9 +154,30 @@ const yesNo = (v) => (v === true ? "Sí" : v === false ? "No" : "—");
    ======================================================= */
 export default function AnalistaDashboard() {
   const [estudios, setEstudios] = useState([]);
-  const [f, setF] = useState({ estado: "", desde: "", hasta: "", cedula: "" });
+  // Paginación de estudios
+  const [estudiosPage, setEstudiosPage] = useState(1);
+  const totalEstudiosPages = Math.ceil(estudios.length / PAGE_SIZE);
+  const estudiosPaginados = estudios.slice((estudiosPage - 1) * PAGE_SIZE, estudiosPage * PAGE_SIZE);
+
+  const [f, setF] = useState({ estado: "", desde: "", hasta: "", cedula: "", empresa: "" });
+  // Empresas únicas para el filtro
+  const empresas = useMemo(() => {
+    const set = new Set();
+    estudios.forEach((e) => {
+      // Intenta obtener empresa de varias ubicaciones posibles
+      let empresa = e.empresa || e.empresa_nombre || e.candidato?.empresa || e.solicitud?.empresa_nombre || e.solicitud?.empresa;
+      if (empresa && typeof empresa === 'object') {
+        empresa = empresa.nombre || empresa.id || JSON.stringify(empresa);
+      }
+      if (empresa) set.add(String(empresa));
+    });
+    return Array.from(set);
+  }, [estudios]);
+  const toast = useToast();
   const [sel, setSel] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [invitando, setInvitando] = useState(false);
+  const [devolviendo, setDevolviendo] = useState(false);
 
   // “Ampliar detalle”
   const [wide, setWide] = useState(false);
@@ -159,6 +190,13 @@ export default function AnalistaDashboard() {
   // ➕ Referencias
   const [refs, setRefs] = useState({ laborales: [], personales: [] });
   const [savingRefs, setSavingRefs] = useState(false);
+
+  // Tabs
+  const [tab, setTab] = useState("CANDIDATO");
+
+  // Listas restrictivas (antecedentes)
+  const [archivosRestrictivas, setArchivosRestrictivas] = useState([]);
+  const [subiendoRestrictiva, setSubiendoRestrictiva] = useState(false);
 
   const loadReferencias = async (id) => {
     try {
@@ -206,21 +244,19 @@ export default function AnalistaDashboard() {
         .catch(() => api.post(`/api/estudios/${sel.id}/referencias/`, payload))
         .catch(() => api.patch(`/api/estudios/${sel.id}/`, { referencias: payload }));
       await loadReferencias(sel.id);
-      alert("Referencias guardadas.");
+      toast.success("✓ Referencias guardadas.");
     } catch {
-      alert("No se pudieron guardar las referencias.");
+      toast.error("No se pudieron guardar las referencias.");
     } finally {
       setSavingRefs(false);
     }
   };
 
-  // Tabs
-  const [tab, setTab] = useState("CANDIDATO");
-
   // pin de progreso (nunca baja)
   const progressPinRef = useRef({});
   const [, setTick] = useState(0);
   const bump = () => setTick((n) => n + 1);
+
   const pinProgress = (id, value) => {
     if (!id) return 0;
     const prev = Number(progressPinRef.current[id] || 0);
@@ -231,13 +267,16 @@ export default function AnalistaDashboard() {
     }
     return progressPinRef.current[id];
   };
+
   const getPinned = (id, fallback) =>
     Math.max(Number(fallback || 0), Number(progressPinRef.current[id] || 0));
 
   const inputClass =
     "rounded-xl border border-white/10 bg-white/10 text-white placeholder-white/40 p-2 text-sm outline-none focus:border-white/30 focus:ring-0";
+
   const buttonPrimary =
     "rounded-xl bg-blue-600/90 hover:bg-blue-600 text-white px-3 py-2 text-sm transition";
+
   const buttonGhost =
     "rounded-xl border border-white/10 hover:bg-white/5 px-3 py-2 text-sm";
 
@@ -261,6 +300,7 @@ export default function AnalistaDashboard() {
       if (f.desde) params.set("desde", f.desde);
       if (f.hasta) params.set("hasta", f.hasta);
       if (f.cedula) params.set("cedula", f.cedula);
+      if (f.empresa) params.set("empresa", f.empresa);
       const { data } = await api.get(`/api/estudios/?${params.toString()}`);
       const rows = Array.isArray(data) ? data : [];
       setEstudios(rows);
@@ -288,17 +328,23 @@ export default function AnalistaDashboard() {
 
   const openEstudio = async (id) => {
     try {
-      const { data } = await api.get(`/api/estudios/${id}/`);
+      const [{ data }, bioRes] = await Promise.allSettled([
+        api.get(`/api/estudios/${id}/`),
+        api.get(`/api/estudios/${id}/candidato_bio/`),
+      ]).then(([main, bio]) => [
+        main.status === "fulfilled" ? main.value : { data: null },
+        bio.status === "fulfilled" ? bio.value : { data: null },
+      ]);
 
-      // Normaliza el candidato sin importar cómo venga del back
+      if (!data) throw new Error("No se pudo cargar el estudio");
+
+      // Candidato base del endpoint principal
       let candidato = data?.candidato || data?.solicitud?.candidato || null;
 
-      // Fallback: si no vino nada, pide el bio dedicado
-      if (!candidato) {
-        try {
-          const r = await api.get(`/api/estudios/${id}/candidato_bio/`);
-          candidato = r?.data || null;
-        } catch { /* ignore */ }
+      // Merge con el bio completo (incluye informacion_familiar, descripcion_vivienda, foto_url, soportes…)
+      const bio = bioRes?.data || null;
+      if (bio) {
+        candidato = { ...(candidato || {}), ...bio };
       }
 
       // Asegura foto_url consistente
@@ -322,27 +368,64 @@ export default function AnalistaDashboard() {
   };
 
   useEffect(() => {
-    load(); // eslint-disable-next-line
+    load();
+    // eslint-disable-next-line
   }, []);
+
+  // Cargar archivos de antecedentes para el estudio seleccionado
+  useEffect(() => {
+    if (!sel?.id) return;
+    (async () => {
+      try {
+        const { data } = await api.get(`/api/estudios/${sel.id}/documentos/?tipo=ANTECEDENTES`);
+        setArchivosRestrictivas(Array.isArray(data) ? data : []);
+      } catch {
+        setArchivosRestrictivas([]);
+      }
+    })();
+  }, [sel?.id]);
 
   /* --------------------- acciones globales --------------------- */
   const invitarCandidato = async () => {
     if (!sel?.solicitud_id) return;
+    setInvitando(true);
+    const tid = toast.loading("Enviando invitación al candidato…");
     try {
       await api.post(`/api/solicitudes/${sel.solicitud_id}/invitar_candidato/`);
-      alert("Invitación enviada.");
-    } catch {
-      alert("No se pudo enviar.");
+      toast.update(tid, "success", "✓ Invitación enviada al candidato.");
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "No se pudo enviar la invitación.";
+      toast.update(tid, "error", detail);
+    } finally {
+      setInvitando(false);
     }
   };
 
-  const devolver = async () => {
-    if (!sel) return;
-    const obs = prompt("Observación para el candidato (requerida):");
-    if (!obs || !obs.trim()) return;
-    await api.post(`/api/estudios/${sel.id}/devolver/`, { observacion: obs.trim() });
-    await openEstudio(sel.id);
+  // Estado para modal de devolución
+  const [devolverModal, setDevolverModal] = useState({ open: false, obs: "", busy: false });
+
+  const abrirDevolver = () => setDevolverModal({ open: true, obs: "", busy: false });
+
+  const confirmarDevolver = async () => {
+    if (!sel || !devolverModal.obs.trim()) return;
+    setDevolverModal((s) => ({ ...s, busy: true }));
+    setDevolviendo(true);
+    const tid = toast.loading("Devolviendo estudio al candidato…");
+    try {
+      await api.post(`/api/estudios/${sel.id}/devolver/`, { observacion: devolverModal.obs.trim() });
+      toast.update(tid, "success", "✓ Estudio devuelto al candidato.");
+      setDevolverModal({ open: false, obs: "", busy: false });
+      await openEstudio(sel.id);
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "No se pudo devolver el estudio.";
+      toast.update(tid, "error", detail);
+      setDevolverModal((s) => ({ ...s, busy: false }));
+    } finally {
+      setDevolviendo(false);
+    }
   };
+
+  const devolver = abrirDevolver;
 
   const [modal, setModal] = useState({
     open: false,
@@ -351,6 +434,7 @@ export default function AnalistaDashboard() {
     text: "",
     busy: false,
   });
+
   const openObs = () =>
     setModal({
       open: true,
@@ -359,8 +443,10 @@ export default function AnalistaDashboard() {
       text: sel?.observacion_analista || "",
       busy: false,
     });
+
   const openDecidir = (d) =>
     setModal({ open: true, mode: "DECIDIR", decision: d, text: "", busy: false });
+
   const submitModal = async () => {
     if (!sel) return;
     setModal((m) => ({ ...m, busy: true }));
@@ -383,12 +469,15 @@ export default function AnalistaDashboard() {
 
   // helpers
   const getItemsBy = (predicate) => (sel?.items || []).filter(predicate);
+
   const isClosed =
     (sel?.estado || "").toUpperCase() === "CERRADO" || Boolean(sel?.finalizado_at);
+
   const selectedProgress = useMemo(
     () => getPinned(sel?.id, sel?.progreso || 0),
     [sel]
   );
+
   const titleFor = (tipo) => {
     const t = (tipo || "").toUpperCase();
     if (t === "TITULOS_ACADEMICOS" || t === "ACADEMICO") return "🎓 ACADÉMICO";
@@ -414,7 +503,7 @@ export default function AnalistaDashboard() {
     <ul className="list-disc pl-5 text-sm">
       {(docs || []).length ? (
         docs.map((d) => {
-          const href = d.url || d.archivo;
+          const href = d.url || d.archivo || d.archivo_url;
           const name = d.nombre || "archivo";
           const onClick = (ev) => {
             if (href && isLocalUrl(href)) {
@@ -477,12 +566,14 @@ export default function AnalistaDashboard() {
           decoding="async"
         />
       );
+
       const click = (e) => {
         if (!isData && isLocalUrl(src)) {
           e.preventDefault();
           openProtected(src, label || "firma");
         }
       };
+
       return (
         <div className="w-28 h-20 rounded-md border border-white/10 bg-white p-1 shadow-sm">
           {isData ? img : (
@@ -512,6 +603,7 @@ export default function AnalistaDashboard() {
             "firma_imagen_base64",
             "firma_upload_base64",
           ]);
+
           return (
             <div key={c.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
               <div className="text-xs font-semibold">
@@ -680,6 +772,7 @@ export default function AnalistaDashboard() {
     await api
       .post(`/api/items/${itemId}/reportar/`, { comentario: txt })
       .catch(() => api.post(`/api/estudio-items/${itemId}/reportar/`, { comentario: txt }));
+
     setSel((s) =>
       s
         ? { ...s, items: (s.items || []).map((it) => (it.id === itemId ? { ...it, comentario: txt } : it)) }
@@ -691,13 +784,16 @@ export default function AnalistaDashboard() {
   const reportarIrregularidad = async (itemId) => {
     const motivo = prompt("Irregularidad en el módulo:");
     if (motivo === null) return;
+
     await api
       .post(`/api/items/${itemId}/reportar/`, { comentario: motivo })
       .catch(() => api.post(`/api/estudio-items/${itemId}/reportar/`, { comentario: motivo }));
+
     await api
       .patch(`/api/items/${itemId}/`, { estado: "HALLAZGO" })
       .catch(() => api.patch(`/api/estudio-items/${itemId}/`, { estado: "HALLAZGO" }))
       .catch(() => {});
+
     setSel((s) =>
       s
         ? {
@@ -722,7 +818,7 @@ export default function AnalistaDashboard() {
         );
       await openEstudio(sel.id);
     } catch {
-      alert("No se pudo validar en silencio.");
+      toast.error("No se pudo validar el ítem.");
     }
   };
 
@@ -736,6 +832,7 @@ export default function AnalistaDashboard() {
         .post(`/api/academicos/${acadId}/observacion/`, { comentario: txt })
         .catch(() => api.patch(`/api/academicos/${acadId}/`, { comentario_analista: txt }))
         .catch(() => api.patch(`/api/academicos/${acadId}/`, { observacion: txt }));
+
       setSel((s) => {
         if (!s) return s;
         const items = (s.items || []).map((it) => {
@@ -747,6 +844,7 @@ export default function AnalistaDashboard() {
         });
         return { ...s, items };
       });
+
       setObsAcadOpen((o) => ({ ...o, [acadId]: false }));
     } finally {
       setSavingAcad((s) => ({ ...s, [acadId]: false }));
@@ -763,8 +861,47 @@ export default function AnalistaDashboard() {
         .post(`/api/laborales/${labId}/observacion/`, { comentario: txt })
         .catch(() => api.patch(`/api/laborales/${labId}/`, { comentario_analista: txt }))
         .catch(() => api.patch(`/api/laborales/${labId}/`, { observacion: txt }));
+
+      setSel((s) => {
+        if (!s) return s;
+        const items = (s.items || []).map((it) => {
+          if (!Array.isArray(it.laborales)) return it;
+          const laborales = it.laborales.map((l) =>
+            l.id === labId ? { ...l, comentario_analista: txt, observacion: txt } : l
+          );
+          return { ...it, laborales };
+        });
+        return { ...s, items };
+      });
+
+      setObsLabOpen((o) => ({ ...o, [labId]: false }));
     } finally {
       setSavingLab((s) => ({ ...s, [labId]: false }));
+    }
+  };
+
+  // Subir archivo de antecedentes
+  const subirRestrictiva = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !sel?.id) return;
+    setSubiendoRestrictiva(true);
+
+    const form = new FormData();
+    form.append("archivo", file);
+    form.append("tipo", "ANTECEDENTES");
+    form.append("nombre", file.name);
+
+    try {
+      await api.post(`/api/estudios/${sel.id}/documentos/`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const { data } = await api.get(`/api/estudios/${sel.id}/documentos/?tipo=ANTECEDENTES`);
+      setArchivosRestrictivas(Array.isArray(data) ? data : []);
+    } catch {
+    } finally {
+      setSubiendoRestrictiva(false);
+      e.target.value = "";
     }
   };
 
@@ -794,6 +931,7 @@ export default function AnalistaDashboard() {
       "Falta sello/registro",
       "Inconsistencia en fechas",
     ];
+
     const sugerenciasLab = [
       "Certificado válido",
       "Referencia no contesta",
@@ -913,11 +1051,13 @@ export default function AnalistaDashboard() {
                       nombre: d.nombre || d.tipo || "soporte",
                       url: d.url || d.archivo,
                     }));
+
                     const supportInline = [
                       a.archivo && { id: `${a.id}-principal`, nombre: "Soporte principal", url: a.archivo },
                       a.cert_antecedentes && { id: `${a.id}-ant`, nombre: "Cert. antecedentes", url: a.cert_antecedentes },
                       a.matricula_archivo && { id: `${a.id}-mat`, nombre: "Matrícula profesional", url: a.matricula_archivo },
                     ].filter(Boolean);
+
                     const existingComment = a.comentario_analista || a.observacion || "";
 
                     return (
@@ -968,6 +1108,7 @@ export default function AnalistaDashboard() {
                       nombre: d.nombre || d.tipo || "soporte",
                       url: d.url || d.archivo,
                     }));
+
                     const certInline = l.certificado ? [{ id: `${l.id}-cert`, nombre: "Certificado", url: l.certificado }] : [];
                     const existingComment = l.comentario_analista || l.observacion || "";
 
@@ -1107,6 +1248,7 @@ export default function AnalistaDashboard() {
         null
       );
     }, [sel?.items]);
+
     const centralVis = useMemo(() => (centralItem ? estadoVisible(centralItem) : null), [centralItem]);
 
     return (
@@ -1164,6 +1306,45 @@ export default function AnalistaDashboard() {
     );
   };
 
+  // Tab de Listas Restrictivas
+  const TabListasRestrictivas = () => (
+    <Box title="🚨 Listas restrictivas (antecedentes)">
+      <div className="mb-3">
+        <label className="block text-sm text-white/80 mb-1">Subir archivo de antecedentes:</label>
+        <input
+          type="file"
+          accept="application/pdf,image/*"
+          onChange={subirRestrictiva}
+          disabled={subiendoRestrictiva || isClosed}
+          className="block text-sm"
+        />
+        {subiendoRestrictiva && <div className="text-xs text-blue-400 mt-1">Subiendo…</div>}
+      </div>
+
+      <div>
+        <div className="font-semibold text-white/80 mb-2">Archivos subidos:</div>
+        {archivosRestrictivas.length === 0 ? (
+          <div className="text-sm text-white/60">No hay archivos de antecedentes subidos.</div>
+        ) : (
+          <ul className="space-y-2">
+            {archivosRestrictivas.map((a) => (
+              <li key={a.id} className="flex items-center gap-3">
+                <button
+                  onClick={() => openProtected(a.archivo_url || a.archivo, a.nombre)}
+                  className="underline text-blue-300 hover:text-blue-400 text-sm"
+                  title="Descargar/Ver archivo"
+                >
+                  {a.nombre}
+                </button>
+                <span className="text-xs text-white/50">{fmtDate(a.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Box>
+  );
+
   /* ====== NUEVO: TAB PATRIMONIO ====== */
   const TabPatrimonio = () => {
     // Toma módulos económicos y arma un resumen
@@ -1177,7 +1358,7 @@ export default function AnalistaDashboard() {
       return <div className="text-sm text-white/60">Sin información de patrimonio.</div>;
     }
 
-    // usa el primero como resumen (ajústalo si quieres consolidar)
+    // usa el primero como resumen
     const e = bloques[0] || {};
 
     return (
@@ -1211,6 +1392,175 @@ export default function AnalistaDashboard() {
     );
   };
 
+  /* ====== TAB: INFORMACIÓN FAMILIAR ====== */
+  const TabInfoFamiliar = () => {
+    const info = sel?.candidato?.informacion_familiar;
+    if (!info) return <div className="text-sm text-white/60 p-2">Sin información familiar registrada.</div>;
+    const parientes = info.parientes || [];
+    const hijos = info.hijos || [];
+    const convivientes = info.convivientes || [];
+    return (
+      <div className="space-y-4">
+        <Box title="👨‍👩‍👧 Información familiar">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm mb-3">
+            <div><span className="text-white/70">Estado civil: </span><b>{valueOrDash(info.estado_civil)}</b></div>
+            {info.nombre_pareja && <div><span className="text-white/70">Pareja: </span><b>{info.nombre_pareja}</b></div>}
+            {info.ocupacion_pareja && <div><span className="text-white/70">Ocupación pareja: </span><b>{info.ocupacion_pareja}</b></div>}
+            {info.empresa_pareja && <div><span className="text-white/70">Empresa pareja: </span><b>{info.empresa_pareja}</b></div>}
+          </div>
+          {info.observaciones && (
+            <div className="text-sm bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+              <span className="text-white/60">Observaciones: </span>{info.observaciones}
+            </div>
+          )}
+        </Box>
+
+        {parientes.length > 0 && (
+          <Box title="👥 Parientes">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-white/50 text-xs uppercase">
+                    <th className="text-left pb-2 pr-4">Parentesco</th>
+                    <th className="text-left pb-2 pr-4">Nombre</th>
+                    <th className="text-left pb-2 pr-4">Ocupación</th>
+                    <th className="text-left pb-2 pr-4">Teléfono</th>
+                    <th className="text-left pb-2 pr-4">Ciudad</th>
+                    <th className="text-left pb-2">Vive con él/ella</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parientes.map((p, i) => (
+                    <tr key={i} className="border-t border-white/10">
+                      <td className="py-1.5 pr-4 font-medium">{valueOrDash(p.parentesco)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(p.nombre_apellido)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(p.ocupacion)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(p.telefono)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(p.ciudad)}</td>
+                      <td className="py-1.5">{yesNo(p.vive_con_el)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Box>
+        )}
+
+        {hijos.length > 0 && (
+          <Box title="👶 Hijos">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-white/50 text-xs uppercase">
+                    <th className="text-left pb-2 pr-4">Nombre</th>
+                    <th className="text-left pb-2 pr-4">Ocupación</th>
+                    <th className="text-left pb-2">Vive con él/ella</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hijos.map((h, i) => (
+                    <tr key={i} className="border-t border-white/10">
+                      <td className="py-1.5 pr-4 font-medium">{valueOrDash(h.nombre_apellido)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(h.ocupacion)}</td>
+                      <td className="py-1.5">{yesNo(h.vive_con_el)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Box>
+        )}
+
+        {convivientes.length > 0 && (
+          <Box title="🏠 Convivientes">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-white/50 text-xs uppercase">
+                    <th className="text-left pb-2 pr-4">Parentesco</th>
+                    <th className="text-left pb-2 pr-4">Nombre</th>
+                    <th className="text-left pb-2 pr-4">Ocupación</th>
+                    <th className="text-left pb-2">Teléfono</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {convivientes.map((c, i) => (
+                    <tr key={i} className="border-t border-white/10">
+                      <td className="py-1.5 pr-4 font-medium">{valueOrDash(c.parentesco)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(c.nombre_apellido)}</td>
+                      <td className="py-1.5 pr-4">{valueOrDash(c.ocupacion)}</td>
+                      <td className="py-1.5">{valueOrDash(c.telefono)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Box>
+        )}
+
+        {parientes.length === 0 && hijos.length === 0 && convivientes.length === 0 && (
+          <div className="text-sm text-white/50">No hay parientes, hijos ni convivientes registrados.</div>
+        )}
+      </div>
+    );
+  };
+
+  /* ====== TAB: DESCRIPCIÓN DE VIVIENDA ====== */
+  const TabDescripcionVivienda = () => {
+    const dv = sel?.candidato?.descripcion_vivienda;
+    if (!dv) return <div className="text-sm text-white/60 p-2">Sin descripción de vivienda registrada.</div>;
+    return (
+      <Box title="🏡 Descripción de vivienda">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Estado vivienda</div>
+            <div className="font-medium">{valueOrDash(dv.estado_vivienda)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Iluminación</div>
+            <div className="font-medium">{valueOrDash(dv.iluminacion)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Ventilación</div>
+            <div className="font-medium">{valueOrDash(dv.ventilacion)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Aseo</div>
+            <div className="font-medium">{valueOrDash(dv.aseo)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Condiciones</div>
+            <div className="font-medium">{valueOrDash(dv.condiciones)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Tenencia</div>
+            <div className="font-medium">{valueOrDash(dv.tenencia)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Tipo de inmueble</div>
+            <div className="font-medium">{valueOrDash(dv.tipo_inmueble)}</div>
+          </div>
+          <div>
+            <div className="text-white/50 text-xs uppercase mb-1">Vías de aproximación</div>
+            <div className="font-medium">{valueOrDash(dv.vias_aproximacion)}</div>
+          </div>
+          {dv.servicios_publicos && (
+            <div>
+              <div className="text-white/50 text-xs uppercase mb-1">Servicios públicos</div>
+              <div className="font-medium">{dv.servicios_publicos}</div>
+            </div>
+          )}
+          {dv.espacios && (
+            <div>
+              <div className="text-white/50 text-xs uppercase mb-1">Espacios</div>
+              <div className="font-medium">{dv.espacios}</div>
+            </div>
+          )}
+        </div>
+      </Box>
+    );
+  };
+
   const TabReferencias = () => {
     const max = 3;
 
@@ -1218,6 +1568,7 @@ export default function AnalistaDashboard() {
       setRefs((r) =>
         r.laborales.length >= max ? r : { ...r, laborales: [...r.laborales, { funcionario: "", cargo: "" }] }
       );
+
     const addPer = () =>
       setRefs((r) =>
         r.personales.length >= max ? r : { ...r, personales: [...r.personales, { nombre: "", familiar: "" }] }
@@ -1225,11 +1576,13 @@ export default function AnalistaDashboard() {
 
     const updLab = (i, k, v) =>
       setRefs((r) => ({ ...r, laborales: r.laborales.map((row, idx) => (idx === i ? { ...row, [k]: v } : row)) }));
+
     const updPer = (i, k, v) =>
       setRefs((r) => ({ ...r, personales: r.personales.map((row, idx) => (idx === i ? { ...row, [k]: v } : row)) }));
 
     const delLab = (i) =>
       setRefs((r) => ({ ...r, laborales: r.laborales.filter((_, idx) => idx !== i) }));
+
     const delPer = (i) =>
       setRefs((r) => ({ ...r, personales: r.personales.filter((_, idx) => idx !== i) }));
 
@@ -1367,7 +1720,7 @@ export default function AnalistaDashboard() {
 
         {/* Filtros */}
         <div className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur-md">
-          <div className="grid md:grid-cols-5 gap-3">
+          <div className="grid md:grid-cols-6 gap-3">
             <input
               className={inputClass}
               placeholder="Desde (YYYY-MM-DD)"
@@ -1398,6 +1751,16 @@ export default function AnalistaDashboard() {
               value={f.cedula}
               onChange={(e) => setF((s) => ({ ...s, cedula: e.target.value }))}
             />
+            <select
+              className={inputClass}
+              value={f.empresa}
+              onChange={(e) => setF((s) => ({ ...s, empresa: e.target.value }))}
+            >
+              <option value="">Empresa (todas)</option>
+              {empresas.map((em, idx) => (
+                <option key={em + idx} value={em}>{em}</option>
+              ))}
+            </select>
             <div className="flex gap-2">
               <button className={`flex-1 ${buttonPrimary}`} onClick={load}>
                 Aplicar
@@ -1421,8 +1784,18 @@ export default function AnalistaDashboard() {
               <div className="rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md overflow-hidden">
                 {loading && <div className="p-4 text-sm text-white/70">Cargando…</div>}
                 {!loading &&
-                  estudios.map((es) => {
+                  estudiosPaginados.map((es) => {
                     const progress = getPinned(es.id, es.progreso || 0);
+                    // Extraer nombre y apellido del candidato
+                    const candidato = es.candidato || es.solicitud?.candidato || {};
+                    const nombre = candidato.nombre || "";
+                    const apellido = candidato.apellido || "";
+                    // Extraer empresa
+                    let empresa = es.empresa || es.empresa_nombre || candidato.empresa || es.solicitud?.empresa_nombre || es.solicitud?.empresa || "";
+                    if (empresa && typeof empresa === 'object') {
+                      empresa = empresa.nombre || empresa.id || JSON.stringify(empresa);
+                    }
+                    empresa = String(empresa);
                     return (
                       <button
                         key={es.id}
@@ -1433,11 +1806,16 @@ export default function AnalistaDashboard() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="font-semibold">#{es.id}</span>
+                            <span className="font-semibold">#{es.id} - {nombre} {apellido}</span>
                             {!!es.nivel_cualitativo && (
                               <Badge color={riesgoColor(es.nivel_cualitativo)}>
                                 {es.nivel_cualitativo}
                               </Badge>
+                            )}
+                            {typeof es.score_cuantitativo === "number" && (
+                              <span className="ml-2 text-xs font-semibold text-blue-300 bg-blue-500/10 rounded-full px-2 py-0.5">
+                                {Math.round(es.score_cuantitativo)}%
+                              </span>
                             )}
                           </div>
                           <span className="text-xs text-white/60">{Math.round(progress)}%</span>
@@ -1445,9 +1823,34 @@ export default function AnalistaDashboard() {
                         <div className="mt-2">
                           <MiniBar value={progress} />
                         </div>
+                        {empresa && (
+                          <div className="mt-1 text-xs text-white/60 font-medium">{empresa}</div>
+                        )}
                       </button>
                     );
                   })}
+
+                {/* Controles de paginación */}
+                {!loading && totalEstudiosPages > 1 && (
+                  <div className="flex justify-center items-center gap-4 py-3 bg-transparent">
+                    <button
+                      onClick={() => setEstudiosPage((p) => Math.max(1, p - 1))}
+                      disabled={estudiosPage === 1}
+                      className={`px-3 py-1 rounded-lg font-semibold ${estudiosPage === 1 ? "bg-gray-700 text-gray-400 cursor-not-allowed" : "bg-blue-700 text-white hover:bg-blue-800"}`}
+                    >
+                      Anterior
+                    </button>
+                    <span className="text-sm text-white/80">Página {estudiosPage} de {totalEstudiosPages}</span>
+                    <button
+                      onClick={() => setEstudiosPage((p) => Math.min(totalEstudiosPages, p + 1))}
+                      disabled={estudiosPage === totalEstudiosPages}
+                      className={`px-3 py-1 rounded-lg font-semibold ${estudiosPage === totalEstudiosPages ? "bg-gray-700 text-gray-400 cursor-not-allowed" : "bg-blue-700 text-white hover:bg-blue-800"}`}
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                )}
+
                 {!loading && !estudios.length && (
                   <div className="p-4 text-sm text-white/70">Sin resultados.</div>
                 )}
@@ -1460,7 +1863,9 @@ export default function AnalistaDashboard() {
               isClosed={isClosed}
               selectedProgress={selectedProgress}
               invitarCandidato={invitarCandidato}
+              invitando={invitando}
               devolver={devolver}
+              devolviendo={devolviendo}
               openObs={openObs}
               openDecidir={openDecidir}
               tab={tab}
@@ -1470,6 +1875,9 @@ export default function AnalistaDashboard() {
               TabCentrales={TabCentrales}
               TabPatrimonio={TabPatrimonio}
               TabReferencias={TabReferencias}
+              TabInfoFamiliar={TabInfoFamiliar}
+              TabDescripcionVivienda={TabDescripcionVivienda}
+              TabListasRestrictivas={TabListasRestrictivas}
             />
           </div>
         ) : (
@@ -1488,9 +1896,55 @@ export default function AnalistaDashboard() {
             TabCentrales={TabCentrales}
             TabPatrimonio={TabPatrimonio}
             TabReferencias={TabReferencias}
+            TabInfoFamiliar={TabInfoFamiliar}
+            TabDescripcionVivienda={TabDescripcionVivienda}
+            TabListasRestrictivas={TabListasRestrictivas}
           />
         )}
       </div>
+
+      {/* Modal: Devolver estudio */}
+      {devolverModal.open && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" role="dialog" aria-modal="true"
+          onKeyDown={(e) => e.key === "Escape" && !devolverModal.busy && setDevolverModal((s) => ({ ...s, open: false }))}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => !devolverModal.busy && setDevolverModal((s) => ({ ...s, open: false }))} />
+          <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1423] p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-white">Devolver estudio al candidato</h3>
+              <button onClick={() => !devolverModal.busy && setDevolverModal((s) => ({ ...s, open: false }))}
+                className="rounded-md px-2 py-1 text-white/60 hover:bg-white/10 text-lg leading-none" disabled={devolverModal.busy}>×</button>
+            </div>
+            <p className="text-sm text-white/60 mb-3">
+              Escribe la observación que verá el candidato al ingresar. Es obligatoria.
+            </p>
+            <textarea
+              rows={4}
+              className="w-full rounded-xl border border-white/10 bg-white/5 text-white placeholder-white/30 p-3 text-sm outline-none focus:border-white/30 resize-none"
+              placeholder="Ej: Por favor completa la información económica y adjunta el certificado laboral…"
+              value={devolverModal.obs}
+              onChange={(e) => setDevolverModal((s) => ({ ...s, obs: e.target.value }))}
+              disabled={devolverModal.busy}
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => setDevolverModal((s) => ({ ...s, open: false }))}
+                className="px-4 py-2 rounded-xl border border-white/10 text-sm text-white/70 hover:bg-white/5"
+                disabled={devolverModal.busy}>Cancelar</button>
+              <button onClick={confirmarDevolver}
+                disabled={devolverModal.busy || !devolverModal.obs.trim()}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-2">
+                {devolverModal.busy && (
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                  </svg>
+                )}
+                {devolverModal.busy ? "Enviando…" : "Confirmar devolución"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal global (Concepto Final / decidir) */}
       {modal.open && (
@@ -1560,12 +2014,14 @@ export default function AnalistaDashboard() {
 }
 
 /* ------------ Detalle: reutilizable ------------ */
-function Detalle({
+export function Detalle({
   sel,
   isClosed,
   selectedProgress,
   invitarCandidato,
+  invitando,
   devolver,
+  devolviendo,
   openObs,
   openDecidir,
   tab,
@@ -1575,6 +2031,9 @@ function Detalle({
   TabCentrales,
   TabPatrimonio,
   TabReferencias,
+  TabInfoFamiliar,
+  TabDescripcionVivienda,
+  TabListasRestrictivas,
 }) {
   return (
     <div className="space-y-3">
@@ -1585,6 +2044,20 @@ function Detalle({
         </div>
       ) : (
         <div className="p-4 rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md space-y-4">
+          {/* Banner: Estudio a consideración del cliente (ahora dentro del panel, no fixed) */}
+          {sel.a_consideracion_cliente && (
+            <div
+              className="mb-3 flex items-center gap-4 p-4 border border-yellow-400/40 bg-yellow-100/90 shadow-xl rounded-xl"
+            >
+              <span className="text-amber-700 font-semibold text-base flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Este estudio fue creado bajo consideración del cliente. Los criterios seleccionados como no relevantes fueron configurados por el cliente y el resultado debe ser interpretado bajo esa política.
+              </span>
+            </div>
+          )}
+
           {/* PROGRESO ARRIBA */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1605,10 +2078,16 @@ function Detalle({
               </div>
               <button
                 onClick={invitarCandidato}
-                className="px-3 py-1.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white text-sm"
-                disabled={isClosed}
+                className="px-3 py-1.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white text-sm disabled:opacity-60 flex items-center gap-1.5"
+                disabled={isClosed || invitando}
               >
-                Invitar candidato
+                {invitando && (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                  </svg>
+                )}
+                {invitando ? "Enviando…" : "Invitar candidato"}
               </button>
             </div>
           </div>
@@ -1630,9 +2109,16 @@ function Detalle({
                 </button>
                 <button
                   onClick={devolver}
-                  className="px-3 py-1.5 rounded-full bg-amber-600/90 hover:bg-amber-600 text-white text-sm"
+                  disabled={devolviendo}
+                  className="px-3 py-1.5 rounded-full bg-amber-600/90 hover:bg-amber-600 text-white text-sm disabled:opacity-60 flex items-center gap-1.5"
                 >
-                  Devolver
+                  {devolviendo && (
+                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                    </svg>
+                  )}
+                  {devolviendo ? "Devolviendo…" : "Devolver"}
                 </button>
                 <button
                   onClick={() => openDecidir("APTO")}
@@ -1646,6 +2132,15 @@ function Detalle({
                 >
                   Cerrar: NO APTO
                 </button>
+                {/* Botón especial para aprobación bajo consideración del cliente */}
+                {sel.a_consideracion_cliente && (
+                  <button
+                    onClick={() => openDecidir("APTO_CONSIDERACION")}
+                    className="px-3 py-1.5 rounded-full bg-yellow-500/90 hover:bg-yellow-500 text-white text-sm border border-yellow-700"
+                  >
+                    Aprobar bajo consideración del cliente
+                  </button>
+                )}
               </>
             ) : (
               <span className="text-sm text-white/70">
@@ -1664,11 +2159,11 @@ function Detalle({
                 ["ACADEMICO", "Académico"],
                 ["LABORAL", "Laboral"],
                 ["ECONOMICA", "Económica"],
-                ["PATRIMONIO", "Patrimonio"],     // <<< NUEVA TAB
+                ["PATRIMONIO", "Patrimonio"],
                 ["ANEXOS", "Anexos"],
                 ["CENTRALES", "Centrales"],
-                ["REFERENCIAS", "Referencias"],   // <<< TAB APARTE PARA REFERENCIAS
-                // ...existing code...
+                ["LISTAS_RESTRICTIVAS", "Listas Restrictivas"],
+                ["REFERENCIAS", "Referencias"],
                 ["INFO_FAMILIAR", "Info Familiar"],
                 ["DESCRIPCION_VIVIENDA", "Descripción Vivienda"],
               ].map(([key, label]) => (
@@ -1693,9 +2188,10 @@ function Detalle({
               {tab === "PATRIMONIO" && <TabPatrimonio />}
               {tab === "ANEXOS" && <TabPorTipo tipos={["VISITA_DOMICILIARIA"]} />}
               {tab === "CENTRALES" && <TabCentrales />}
+              {tab === "LISTAS_RESTRICTIVAS" && <TabListasRestrictivas />}
               {tab === "REFERENCIAS" && <TabReferencias />}
-              {tab === "INFO_FAMILIAR" && <TabPorTipo tipos={["INFO_FAMILIAR"]} />}
-              {tab === "DESCRIPCION_VIVIENDA" && <TabPorTipo tipos={["DESCRIPCION_VIVIENDA"]} />}
+              {tab === "INFO_FAMILIAR" && <TabInfoFamiliar />}
+              {tab === "DESCRIPCION_VIVIENDA" && <TabDescripcionVivienda />}
             </div>
           </div>
         </div>
@@ -1755,4 +2251,4 @@ function ObsRegistro({ open, setOpen, sugerencias, text, setText, onSave, saving
       )}
     </div>
   );
-} 
+}

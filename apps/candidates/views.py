@@ -15,7 +15,8 @@ class InformacionFamiliarMeView(APIView):
         cand = get_candidato_for_user(request)
         info = getattr(cand, "informacion_familiar", None)
         if not info:
-            return Response({"detail": "No hay información familiar registrada."}, status=404)
+            # Crear registro vacío si no existe
+            info = InformacionFamiliar.objects.create(candidato=cand)
         ser = InformacionFamiliarSerializer(info, context={"request": request})
         return Response(ser.data)
 
@@ -52,7 +53,8 @@ class DescripcionViviendaMeView(APIView):
         cand = get_candidato_for_user(request)
         info = getattr(cand, "descripcion_vivienda", None)
         if not info:
-            return Response({"detail": "No hay descripción de vivienda registrada."}, status=404)
+            # Crear registro vacío si no existe
+            info = DescripcionVivienda.objects.create(candidato=cand)
         ser = DescripcionViviendaSerializer(info, context={"request": request})
         return Response(ser.data)
 
@@ -110,8 +112,9 @@ def get_candidato_for_user(request):
     cand = getattr(request.user, "candidato", None)
     if cand:
         return cand
-    # Fallback por email (como tenías)
-    return get_object_or_404(Candidato, email=request.user.email)
+    # Fallback por email, pero si hay duplicados, toma el primero
+    from apps.candidates.models import Candidato
+    return Candidato.objects.filter(email=request.user.email).first()
 
 
 class CandidatoMeView(APIView):

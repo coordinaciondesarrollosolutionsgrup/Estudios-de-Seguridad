@@ -35,6 +35,26 @@ class ClienteConfiguracionFormulario(models.Model):
         return f"{self.empresa} excluye {self.subitem} de {self.item}"
 
 
+class HistorialConfiguracion(models.Model):
+    TIPO_CHOICES = [
+        ('formulario', 'Formulario'),
+        ('politica', 'Política'),
+    ]
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='historial_configuracion')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='historial_configuracion')
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    accion = models.CharField(max_length=100)   # Ej: "Excluyó subítem", "Incluyó subítem", "Marcó no relevante"
+    item = models.CharField(max_length=100)     # Ej: "BIOGRÁFICOS", "delitos"
+    subitem = models.CharField(max_length=100)  # Ej: "fecha de nacimiento", "riñas"
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.usuario} - {self.accion} - {self.item}: {self.subitem}"
+
+
 class EstudioReferencia(models.Model):
     estudio = models.ForeignKey("studies.Estudio", related_name="referencias", on_delete=models.CASCADE)
     nombres   = models.CharField(max_length=120)
@@ -87,6 +107,7 @@ class Estudio(models.Model):
     score_cuantitativo = models.FloatField(default=0.0)
     nivel_cualitativo = models.CharField(max_length=20, default="BAJO")
     updated_at = models.DateTimeField(auto_now=True)
+    a_consideracion_cliente = models.BooleanField(default=False, help_text="Indica si el estudio fue creado bajo configuración personalizada del cliente (criterios no relevantes)")
 
     estado = models.CharField(max_length=20, choices=EstudioEstado.choices, default=EstudioEstado.EN_CAPTURA, db_index=True)
     enviado_at = models.DateTimeField(null=True, blank=True)

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
-import { saveConfigFormulario } from "../api/studies";
+import { saveConfigFormulario, getHistorialConfig } from "../api/studies";
 import ProgressBarLive from "../components/ProgressBarLive";
 import useStudyProgress from "../hooks/useStudyProgress";
 import ThreeBackground from "../components/ThreeBackground";
+import { useToast } from "../components/Toast";
 
 import {
   Building2,
@@ -32,8 +33,25 @@ function LivePct({ studyId, initial = 0 }) {
 
 /* ======================= Main ======================= */
 export default function ClienteDashboard() {
+        const [showHistorialModal, setShowHistorialModal] = useState(false);
+        const [historialData, setHistorialData] = useState([]);
+        const [loadingHistorial, setLoadingHistorial] = useState(false);
       // Estado para la configuración guardada
       const [configGuardada, setConfigGuardada] = useState({});
+
+    const openHistorialModal = useCallback(async () => {
+      setShowHistorialModal(true);
+      setLoadingHistorial(true);
+      try {
+        const { data } = await getHistorialConfig();
+        setHistorialData(Array.isArray(data) ? data : []);
+      } catch {
+        setHistorialData([]);
+      } finally {
+        setLoadingHistorial(false);
+      }
+    }, []);
+
     // Sincronizar configuración guardada al abrir el modal
     const syncConfigFormulario = useCallback(async () => {
       try {
@@ -52,13 +70,17 @@ export default function ClienteDashboard() {
         // Si falla, mantener el estado actual
       }
     }, []);
+  const toast = useToast();
+
   const [me, setMe] = useState(null);
   const [hasEmpresa, setHasEmpresa] = useState(false);
   const [loadingMe, setLoadingMe] = useState(true);
 
   const [estudios, setEstudios] = useState([]);
+  const [paginaActual, setPaginaActual] = useState(1);
   const [sel, setSel] = useState(null);
   const [msg, setMsg] = useState("");
+  const [creando, setCreando] = useState(false);
 
   const [generating, setGenerating] = useState(false);
 
@@ -149,7 +171,7 @@ export default function ClienteDashboard() {
       e.preventDefault();
       setMsg("");
 
-      if (disabledCreate) return;
+      if (disabledCreate || creando) return;
 
       const payload = {
         candidato: {
@@ -169,9 +191,43 @@ export default function ClienteDashboard() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.candidato.email))
         return setMsg("El correo del candidato no es válido.");
 
+      // --- VERIFICACIÓN DE CÉDULA Y EMPRESA ---
+      try {
+        const { data: estudiosExist } = await api.get(`/api/estudios/?cedula=${payload.candidato.cedula}`);
+        let existeMismaEmpresa = false;
+        let empresasOtras = [];
+        if (Array.isArray(estudiosExist)) {
+          estudiosExist.forEach(est => {
+            let empresaEst = est.empresa || est.empresa_nombre || est.solicitud?.empresa || est.solicitud?.empresa_nombre || "";
+            let empresaActual = me?.empresa_nombre || me?.empresa || "";
+            if (empresaEst && typeof empresaEst === 'object') empresaEst = empresaEst.nombre || empresaEst.id || JSON.stringify(empresaEst);
+            if (empresaActual && typeof empresaActual === 'object') empresaActual = empresaActual.nombre || empresaActual.id || JSON.stringify(empresaActual);
+            empresaEst = String(empresaEst).toLowerCase().trim();
+            empresaActual = String(empresaActual).toLowerCase().trim();
+            if (empresaEst && empresaEst === empresaActual) {
+              existeMismaEmpresa = true;
+            } else if (empresaEst) {
+              empresasOtras.push(empresaEst);
+            }
+          });
+        }
+        if (existeMismaEmpresa) {
+          return setMsg("Ya existe un estudio para esta cédula en esta empresa. No se puede crear otro.");
+        }
+        if (empresasOtras.length > 0) {
+          toast.info(`Atención: Ya existe(n) estudio(s) con esta cédula en otra(s) empresa(s): ${empresasOtras.join(", ")}`);
+        }
+      } catch {
+        toast.info("No se pudo verificar si la cédula ya existe en otros estudios. Continúa bajo tu responsabilidad.");
+      }
+
+      // --- CREACIÓN ---
+      setCreando(true);
+      const tid = toast.loading("Creando solicitud y enviando correos…");
       try {
         await api.post("/api/solicitudes/", payload);
-        setMsg("Solicitud creada. Se envió correo al candidato y al analista.");
+        toast.update(tid, "success", "✓ Solicitud creada. Se enviaron los correos.");
+        setMsg("");
         setForm({
           nombre: "",
           apellido: "",
@@ -197,10 +253,13 @@ export default function ClienteDashboard() {
           candDetails ||
           JSON.stringify(d || {});
         console.error("Error crear solicitud:", d);
+        toast.update(tid, "error", `No se pudo crear la solicitud: ${detail}`);
         setMsg(`No se pudo crear la solicitud: ${detail}`);
+      } finally {
+        setCreando(false);
       }
     },
-    [disabledCreate, form, load]
+    [creando, disabledCreate, form, load, me, toast]
   );
 
   /* ======================= Descargar PDF generado en el backend ======================= */
@@ -232,11 +291,11 @@ export default function ClienteDashboard() {
         console.error("Fallo al descargar PDF:", e);
         const status = e?.response?.status;
         if (status === 404) {
-          alert("El PDF no existe: revisa la ruta / permisos o el ID del estudio.");
+          toast.error("El PDF no existe: revisa la ruta / permisos o el ID del estudio.");
         } else if (status === 403) {
-          alert("No tienes permiso para descargar este PDF.");
+          toast.error("No tienes permiso para descargar este PDF.");
         } else {
-          alert("No se pudo generar/descargar el PDF. Revisa el backend.");
+          toast.error("No se pudo generar/descargar el PDF. Revisa el backend.");
         }
       } finally {
         setGenerating(false);
@@ -426,17 +485,16 @@ export default function ClienteDashboard() {
         });
       });
       if (cambios.length === 0) {
-        setMsg("No hay cambios para guardar.");
+        toast.info("No hay cambios para guardar.");
         setSavingConfig(false);
         return;
       }
       await saveConfigFormulario(cambios);
-      setMsg("Configuración guardada correctamente.");
+      toast.success("✓ Configuración guardada correctamente.");
       setShowConfigModal(false);
     } catch (e) {
-      // Mostrar detalle del error si existe
       const detail = e?.response?.data?.detail || e?.message || "Error al guardar configuración.";
-      setMsg(detail);
+      toast.error(detail);
     } finally {
       setSavingConfig(false);
     }
@@ -471,18 +529,28 @@ export default function ClienteDashboard() {
   const savePoliticas = async () => {
     setSavingPoliticas(true);
     try {
-      // Solo enviar cambios
-      const cambios = Object.values(politicaEdit).filter(p => p._changed);
-      for (const pol of cambios) {
+      const cambios = Object.entries(politicaEdit).filter(([, p]) => p._changed);
+      for (const [key, pol] of cambios) {
+        const [criterio, opcion] = key.split('__');
+        // eslint-disable-next-line no-unused-vars
+        const { _changed, ...base } = pol;
         if (pol.id) {
-          await api.patch(`/api/politicas/${pol.id}/`, pol);
+          await api.patch(`/api/politicas/${pol.id}/`, { no_relevante: base.no_relevante });
         } else {
-          await api.post(`/api/politicas/`, pol);
+          await api.post('/api/politicas/', {
+            empresa: me?.empresa_id,
+            criterio,
+            opcion,
+            no_relevante: base.no_relevante ?? true,
+          });
         }
       }
       setShowPoliticasModal(false);
       syncPoliticas();
-    } catch (e) {}
+    } catch (e) {
+      const detail = e?.response?.data ? JSON.stringify(e.response.data) : e?.message;
+      toast.error('Error al guardar políticas: ' + detail);
+    }
     setSavingPoliticas(false);
   };
 
@@ -553,7 +621,51 @@ export default function ClienteDashboard() {
             >
               Arma tu estudio
             </button>
+            <button
+              type="button"
+              onClick={openHistorialModal}
+              className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-sky-600 hover:bg-sky-500 transition"
+              style={{marginLeft:8}}
+            >
+              Historial de configuraciones
+            </button>
           </div>
+       {/* Modal de historial de configuraciones */}
+      {showHistorialModal && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,width:'100vw',height:'100vh',background:'rgba(0,0,0,0.5)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setShowHistorialModal(false)}>
+          <div style={{background:'rgba(24,24,27,0.95)',borderRadius:16,maxWidth:500,width:'90vw',maxHeight:'80vh',overflowY:'auto',padding:24,position:'relative',color:'#fff',boxShadow:'0 8px 32px 0 rgba(0,0,0,0.37)',border:'1px solid rgba(255,255,255,0.08)',zIndex:2010}} onClick={e => e.stopPropagation()}>
+            <button style={{position:'absolute',top:12,right:12,background:'#333',color:'#fff',border:'none',borderRadius:'50%',width:32,height:32,fontSize:20,cursor:'pointer',zIndex:2020}} onClick={() => setShowHistorialModal(false)}>×</button>
+            <h2 style={{marginBottom:16}}>Historial de configuraciones</h2>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',fontSize:14,background:'rgba(0,0,0,0.1)',borderRadius:8}}>
+                <thead>
+                  <tr style={{background:'#222'}}>
+                    <th style={{padding:'8px',textAlign:'left'}}>Fecha</th>
+                    <th style={{padding:'8px',textAlign:'left'}}>Usuario</th>
+                    <th style={{padding:'8px',textAlign:'left'}}>Acción</th>
+                    <th style={{padding:'8px',textAlign:'left'}}>Detalle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Ejemplo de datos, reemplazar por datos reales luego */}
+                  <tr style={{background:'rgba(255,255,255,0.02)'}}>
+                    <td style={{padding:'8px'}}>2026-03-27 09:20</td>
+                    <td style={{padding:'8px'}}>cliente1</td>
+                    <td style={{padding:'8px'}}>Excluyó subítem</td>
+                    <td style={{padding:'8px'}}>BIOGRAFICOS: fecha de nacimiento</td>
+                  </tr>
+                  <tr style={{background:'rgba(255,255,255,0.04)'}}>
+                    <td style={{padding:'8px'}}>2026-03-26 16:10</td>
+                    <td style={{padding:'8px'}}>cliente1</td>
+                    <td style={{padding:'8px'}}>Incluyó subítem</td>
+                    <td style={{padding:'8px'}}>LABORAL: empresa</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="flex items-center gap-2">
@@ -609,31 +721,93 @@ export default function ClienteDashboard() {
             </div>
           </div>
 
-          <div className="pt-1">
+          <div className="pt-1 flex items-center gap-2">
             <button
               type="submit"
-              disabled={disabledCreate}
-              className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition ${
-                disabledCreate ? "cursor-not-allowed bg-slate-600" : "bg-blue-600 hover:bg-blue-500"
+              disabled={disabledCreate || creando}
+              className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition flex items-center gap-2 ${
+                disabledCreate || creando ? "cursor-not-allowed bg-slate-600" : "bg-blue-600 hover:bg-blue-500"
               }`}
             >
-              Crear solicitud
+              {creando && (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                </svg>
+              )}
+              {creando ? "Creando…" : "Crear solicitud"}
             </button>
             {/* Botón para abrir el modal de políticas */}
             <button
               type="button"
               onClick={openPoliticasModal}
-              className={`rounded-xl px-4 py-2 ml-2 text-sm font-medium text-white transition bg-amber-600 hover:bg-amber-500 ${politicasBloqueadas ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition bg-amber-600 hover:bg-amber-500 ${politicasBloqueadas ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={politicasBloqueadas}
               title={politicasBloqueadas ? 'La configuración de políticas está bloqueada. Contacta al administrador para editar.' : ''}
+              style={{marginLeft:8}}
             >
               Configurar políticas
             </button>
             {politicasBloqueadas && (
-              <div className="mt-2 text-xs text-red-300">La configuración de políticas está bloqueada. Contacta al administrador para editar.</div>
+              <div className="ml-2 text-xs text-red-300">La configuración de políticas está bloqueada. Contacta al administrador para editar.</div>
             )}
           </div>
         </form>
+
+        {/* Modal de historial de configuraciones */}
+        {showHistorialModal && (
+          <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,width:'100vw',height:'100vh',background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setShowHistorialModal(false)}>
+            <div style={{background:'rgba(24,24,27,0.95)',borderRadius:16,maxWidth:580,width:'90vw',maxHeight:'80vh',overflowY:'auto',padding:24,position:'relative',color:'#fff',boxShadow:'0 8px 32px 0 rgba(0,0,0,0.37)',border:'1px solid rgba(255,255,255,0.08)'}} onClick={e => e.stopPropagation()}>
+              <button style={{position:'absolute',top:12,right:12,background:'#333',color:'#fff',border:'none',borderRadius:'50%',width:32,height:32,fontSize:20,cursor:'pointer',zIndex:10}} onClick={() => setShowHistorialModal(false)}>×</button>
+              <h2 style={{marginBottom:6,fontSize:18,fontWeight:'bold'}}>Historial de configuraciones</h2>
+              <p style={{fontSize:12,color:'#d1d5db',marginBottom:16}}>
+                Registro de cambios realizados sobre los ítems y subítems del formulario de estudio.
+              </p>
+              {loadingHistorial ? (
+                <div style={{textAlign:'center',padding:'24px 0',color:'#9ca3af',fontSize:13}}>Cargando historial...</div>
+              ) : historialData.length === 0 ? (
+                <div style={{textAlign:'center',padding:'24px 0',color:'#9ca3af',fontSize:13}}>No hay cambios registrados aún.</div>
+              ) : (
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr style={{background:'#222',color:'#d1d5db',textTransform:'uppercase',fontSize:11,letterSpacing:'0.05em'}}>
+                        <th style={{padding:'8px 10px',textAlign:'left',fontWeight:600,borderBottom:'1px solid rgba(255,255,255,0.08)'}}>Fecha</th>
+                        <th style={{padding:'8px 10px',textAlign:'left',fontWeight:600,borderBottom:'1px solid rgba(255,255,255,0.08)'}}>Usuario</th>
+                        <th style={{padding:'8px 10px',textAlign:'left',fontWeight:600,borderBottom:'1px solid rgba(255,255,255,0.08)'}}>Acción</th>
+                        <th style={{padding:'8px 10px',textAlign:'left',fontWeight:600,borderBottom:'1px solid rgba(255,255,255,0.08)'}}>Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historialData.map((h, i) => {
+                        const esExclusion = h.accion.toLowerCase().includes('excluy') || h.accion.toLowerCase().includes('no relevante');
+                        const fecha = new Date(h.fecha).toLocaleString('es-CO', {dateStyle:'short', timeStyle:'short'});
+                        return (
+                          <tr key={h.id} style={{background: i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)', borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+                            <td style={{padding:'9px 10px',color:'#9ca3af',whiteSpace:'nowrap'}}>{fecha}</td>
+                            <td style={{padding:'9px 10px',color:'#e5e7eb'}}>{h.usuario_nombre}</td>
+                            <td style={{padding:'9px 10px'}}>
+                              <span style={{
+                                background: esExclusion ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                                color: esExclusion ? '#f87171' : '#34d399',
+                                padding:'2px 8px', borderRadius:99, fontSize:11, fontWeight:'bold',
+                                border: esExclusion ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(16,185,129,0.25)',
+                                whiteSpace:'nowrap'
+                              }}>{h.accion}</span>
+                            </td>
+                            <td style={{padding:'9px 10px',color:'#d1d5db'}}>
+                              <span style={{color:'#f59e42',fontWeight:'bold'}}>{h.item}</span>: {h.subitem}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Modal de configuración avanzada "Arma tu estudio" */}
         {showConfigModal && (
@@ -690,65 +864,72 @@ export default function ClienteDashboard() {
                 Los datos seleccionados serán considerados como <b className="text-amber-400">NO RELEVANTES</b> y el estudio será evaluado a consideración del cliente. Una vez guardada la configuración, el formulario quedará <b className="text-amber-400">BLOQUEADO</b> y no podrá ser editado hasta que el <b className="text-amber-400">ADMINISTRADOR</b> lo habilite nuevamente.
               </p>
               {/* Secciones y opciones de políticas */}
+              {politicasBloqueadas && (
+                <div style={{background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,padding:'8px 12px',marginBottom:16,color:'#fca5a5',fontSize:13}}>
+                  🔒 La configuración está <b>BLOQUEADA</b>. Solo el <b>ADMINISTRADOR</b> puede habilitarla nuevamente.
+                </div>
+              )}
               <form onSubmit={e => { e.preventDefault(); savePoliticas(); }}>
-                <div style={{marginBottom:16}}>
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
                   <div style={{fontWeight:'bold',marginBottom:8}}>Delitos</div>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['delitos__procesos_alimentos']?.no_relevante} onChange={() => handlePoliticaToggle('delitos__procesos_alimentos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['delitos__procesos_alimentos']?.no_relevante} onChange={() => handlePoliticaToggle('delitos__procesos_alimentos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['delitos__procesos_alimentos']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['delitos__procesos_alimentos']?.no_relevante?'bold':'normal'}}>Procesos de alimentos</span>
                   </label>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['delitos__rinas']?.no_relevante} onChange={() => handlePoliticaToggle('delitos__rinas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['delitos__rinas']?.no_relevante} onChange={() => handlePoliticaToggle('delitos__rinas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['delitos__rinas']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['delitos__rinas']?.no_relevante?'bold':'normal'}}>Riñas</span>
                   </label>
                 </div>
-                <div style={{marginBottom:16}}>
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
                   <div style={{fontWeight:'bold',marginBottom:8}}>Lugar de residencia</div>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['residencia__zonas_perifericas']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__zonas_perifericas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['residencia__zonas_perifericas']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__zonas_perifericas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['residencia__zonas_perifericas']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['residencia__zonas_perifericas']?.no_relevante?'bold':'normal'}}>Zonas periféricas</span>
                   </label>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['residencia__sur_ciudad']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__sur_ciudad', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['residencia__sur_ciudad']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__sur_ciudad', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['residencia__sur_ciudad']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['residencia__sur_ciudad']?.no_relevante?'bold':'normal'}}>Sur de la ciudad</span>
                   </label>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['residencia__comunas']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__comunas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['residencia__comunas']?.no_relevante} onChange={() => handlePoliticaToggle('residencia__comunas', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['residencia__comunas']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['residencia__comunas']?.no_relevante?'bold':'normal'}}>Comunas</span>
                   </label>
                 </div>
-                <div style={{marginBottom:16}}>
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
                   <div style={{fontWeight:'bold',marginBottom:8}}>Tránsito</div>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['transito__comparendos']?.no_relevante} onChange={() => handlePoliticaToggle('transito__comparendos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['transito__comparendos']?.no_relevante} onChange={() => handlePoliticaToggle('transito__comparendos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['transito__comparendos']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['transito__comparendos']?.no_relevante?'bold':'normal'}}>Comparendos</span>
                   </label>
                 </div>
-                <div style={{marginBottom:16}}>
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
                   <div style={{fontWeight:'bold',marginBottom:8}}>Centrales de riesgo</div>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['centrales__reportes_negativos']?.no_relevante} onChange={() => handlePoliticaToggle('centrales__reportes_negativos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['centrales__reportes_negativos']?.no_relevante} onChange={() => handlePoliticaToggle('centrales__reportes_negativos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['centrales__reportes_negativos']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['centrales__reportes_negativos']?.no_relevante?'bold':'normal'}}>Reportes negativos</span>
                   </label>
                 </div>
-                <div style={{marginBottom:16}}>
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
                   <div style={{fontWeight:'bold',marginBottom:8}}>Consumo de drogas</div>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['drogas__consumo_frecuente']?.no_relevante} onChange={() => handlePoliticaToggle('drogas__consumo_frecuente', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['drogas__consumo_frecuente']?.no_relevante} onChange={() => handlePoliticaToggle('drogas__consumo_frecuente', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['drogas__consumo_frecuente']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['drogas__consumo_frecuente']?.no_relevante?'bold':'normal'}}>Consumo frecuente</span>
                   </label>
-                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                    <input type="checkbox" checked={!!politicaEdit['drogas__consumo_pasado']?.no_relevante} onChange={() => handlePoliticaToggle('drogas__consumo_pasado', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['drogas__consumo_pasado']?.no_relevante} onChange={() => handlePoliticaToggle('drogas__consumo_pasado', 'no_relevante')} style={{accentColor:'#f59e42'}} />
                     <span style={{color:politicaEdit['drogas__consumo_pasado']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['drogas__consumo_pasado']?.no_relevante?'bold':'normal'}}>Consumo pasado</span>
                   </label>
                 </div>
-                <button
-                  type="submit"
-                  disabled={savingPoliticas}
-                  style={{marginTop:16,background:'#10b981',color:'#fff',padding:'8px 16px',borderRadius:6,border:'none',fontWeight:'bold',fontSize:14,cursor:savingPoliticas?'not-allowed':'pointer'}}
-                >
-                  Guardar políticas
-                </button>
+                {!politicasBloqueadas && (
+                  <button
+                    type="submit"
+                    disabled={savingPoliticas}
+                    style={{marginTop:16,background:'#10b981',color:'#fff',padding:'8px 16px',borderRadius:6,border:'none',fontWeight:'bold',fontSize:14,cursor:savingPoliticas?'not-allowed':'pointer'}}
+                  >
+                    Guardar políticas
+                  </button>
+                )}
               </form>
             </div>
           </div>
@@ -765,10 +946,17 @@ export default function ClienteDashboard() {
         <div className="grid gap-6 md:grid-cols-2">
           {/* Lista */}
           <div className="space-y-3">
-            <h3 className="text-lg font-semibold">Estudios</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Estudios</h3>
+              {estudios.length > 0 && (
+                <span className="text-xs text-white/50">
+                  {estudios.length} estudio{estudios.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
             <div className={`${cardCls} divide-y divide-white/5`}>
               {estudios.length ? (
-                estudios.map((es) => (
+                estudios.slice((paginaActual - 1) * 8, paginaActual * 8).map((es) => (
                   <button
                     key={es.id}
                     onClick={() => openResumen(es.id)}
@@ -795,6 +983,31 @@ export default function ClienteDashboard() {
                 <div className="p-4 text-sm text-white/70">Sin estudios.</div>
               )}
             </div>
+            {/* Paginación */}
+            {estudios.length > 8 && (() => {
+              const totalPags = Math.ceil(estudios.length / 8);
+              return (
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,paddingTop:4}}>
+                  <button
+                    onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
+                    disabled={paginaActual === 1}
+                    style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.1)',color: paginaActual === 1 ? '#4b5563' : '#e5e7eb',borderRadius:8,width:32,height:32,cursor: paginaActual === 1 ? 'not-allowed' : 'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}
+                  >‹</button>
+                  {Array.from({length: totalPags}, (_, i) => i + 1).map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setPaginaActual(n)}
+                      style={{background: paginaActual === n ? '#6366f1' : 'rgba(255,255,255,0.08)',border: paginaActual === n ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.1)',color: paginaActual === n ? '#fff' : '#9ca3af',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:13,fontWeight: paginaActual === n ? 'bold' : 'normal'}}
+                    >{n}</button>
+                  ))}
+                  <button
+                    onClick={() => setPaginaActual(p => Math.min(totalPags, p + 1))}
+                    disabled={paginaActual === totalPags}
+                    style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.1)',color: paginaActual === totalPags ? '#4b5563' : '#e5e7eb',borderRadius:8,width:32,height:32,cursor: paginaActual === totalPags ? 'not-allowed' : 'pointer',fontSize:16,display:'flex',alignItems:'center',justifyContent:'center'}}
+                  >›</button>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Resumen */}

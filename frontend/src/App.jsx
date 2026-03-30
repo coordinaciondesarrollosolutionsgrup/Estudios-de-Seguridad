@@ -1,5 +1,7 @@
   // src/App.jsx
   import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+  import { ToastProvider } from "./components/Toast";
+  import SessionExpiredModal from "./components/SessionExpiredModal";
   import Login from "./pages/Login";
   import CandidatoPortal from "./pages/CandidatoPortal";
   import AnalistaDashboard from "./pages/AnalistaDashboard";
@@ -22,6 +24,8 @@
 
   export default function App() {
     return (
+      <ToastProvider>
+      <SessionExpiredModal />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Login />} />
@@ -71,5 +75,6 @@
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      </ToastProvider>
     );
   }

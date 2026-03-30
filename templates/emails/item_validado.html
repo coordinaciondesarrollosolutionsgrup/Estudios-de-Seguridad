@@ -1,8 +1,48 @@
 {% extends "emails/base_email.html" %}
 {% block content %}
-<p>Estimado cliente,</p>
-<p>Le informamos que el ítem <b>'{{ tipo }}'</b> del estudio #{{ estudio_id }} correspondiente al candidato <b>{{ nombre }}</b> (Cédula: {{ cedula }}) ha sido validado.</p>
-<ul>
-  <li><b>Progreso actual del estudio:</b> {{ progreso }}%</li>
-</ul>
+<p style="font-size:13px;font-weight:600;color:#16a34a;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px 0;">Ítem Validado</p>
+<h1 style="margin:0 0 24px 0;font-size:24px;color:#1e293b;">
+  Avance en estudio <span style="color:#2563eb;">#{{ estudio_id }}</span>
+</h1>
+
+<p style="margin:0 0 16px 0;color:#475569;">Estimado cliente,</p>
+<p style="margin:0 0 24px 0;color:#475569;">
+  Le informamos que se ha validado un ítem del estudio del candidato <strong>{{ nombre }}</strong> (Cédula: <strong>{{ cedula }}</strong>).
+</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:24px;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Ítem validado</span>
+            <span style="color:#1e293b;font-size:15px;font-weight:600;">{{ tipo }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Candidato</span>
+            <span style="color:#1e293b;font-size:15px;">{{ nombre }} — {{ cedula }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:4px;">Progreso del estudio</span>
+            <div style="background:#e2e8f0;border-radius:20px;height:10px;width:100%;margin-bottom:4px;">
+              <div style="background:linear-gradient(90deg,#2563eb,#16a34a);height:10px;border-radius:20px;width:{{ progreso }}%;"></div>
+            </div>
+            <span style="color:#16a34a;font-weight:700;font-size:16px;">{{ progreso }}%</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<div style="text-align:center;">
+  <a href="https://conecta.econfia.co/" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#ffffff;padding:13px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.5px;">
+    Ver estudio
+  </a>
+</div>
 {% endblock %}

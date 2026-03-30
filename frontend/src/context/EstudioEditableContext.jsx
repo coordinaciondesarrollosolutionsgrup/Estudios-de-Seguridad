@@ -1,13 +1,18 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import api from "../api/axios";
 
-// Contexto para saber si el estudio es editable
-const EstudioEditableContext = createContext({ editable: true, estado: "EN_CAPTURA", loading: true });
+const EstudioEditableContext = createContext({
+  editable: true,
+  estado: "EN_CAPTURA",
+  loading: true,
+  aConsideracionCliente: false,
+});
 
 export function EstudioEditableProvider({ studyId, children }) {
   const [estado, setEstado] = useState("EN_CAPTURA");
   const [editable, setEditable] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [aConsideracionCliente, setAConsideracionCliente] = useState(false);
 
   useEffect(() => {
     let cancel = false;
@@ -19,9 +24,11 @@ export function EstudioEditableProvider({ studyId, children }) {
         const est = (data?.estado || "EN_CAPTURA").toUpperCase();
         setEstado(est);
         setEditable(est === "EN_CAPTURA" || est === "DEVUELTO");
+        setAConsideracionCliente(data?.a_consideracion_cliente || false);
       } catch {
         setEstado("EN_CAPTURA");
         setEditable(true);
+        setAConsideracionCliente(false);
       } finally {
         if (!cancel) setLoading(false);
       }
@@ -31,7 +38,7 @@ export function EstudioEditableProvider({ studyId, children }) {
   }, [studyId]);
 
   return (
-    <EstudioEditableContext.Provider value={{ editable, estado, loading }}>
+    <EstudioEditableContext.Provider value={{ editable, estado, loading, aConsideracionCliente }}>
       {children}
     </EstudioEditableContext.Provider>
   );

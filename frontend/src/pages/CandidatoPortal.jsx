@@ -10,6 +10,8 @@ import ThreeBackground from "../components/ThreeBackground";
 import EvaluacionTratoModal from "../components/EvaluacionTratoModal";
 
 export default function CandidatoPortal() {
+    // Banner para estudios a consideración del cliente (oculto para el candidato)
+    const ConsideracionBanner = () => null;
   const navigate = useNavigate();
 
   const [estudio, setEstudio] = useState(null);
@@ -167,6 +169,7 @@ export default function CandidatoPortal() {
 
   return (
     <div className="relative min-h-screen">
+      <ConsideracionBanner />
       {/* Fondo */}
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(1200px_700px_at_25%_20%,rgba(255,255,255,0.08),transparent_60%),linear-gradient(180deg,#0b1220_0%,#0a0f1a_100%)]" />
       <ThreeBackground />

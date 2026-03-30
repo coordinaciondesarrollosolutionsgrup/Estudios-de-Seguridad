@@ -43,3 +43,6 @@ export const upsertPatrimonio = (estudioId, data, id) =>
 
 export const saveConfigFormulario = (payload) =>
   api.post("/api/config-formulario/", payload);
+
+export const getHistorialConfig = () =>
+  api.get("/api/historial-config/");

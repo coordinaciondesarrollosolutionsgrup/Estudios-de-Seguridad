@@ -95,8 +95,34 @@ class SolicitudCreateSerializer(serializers.ModelSerializer):
         empresa = validated_data.pop("empresa", None) or self.context.get("empresa")
         if empresa is None:
             raise serializers.ValidationError({"empresa": ["Empresa no especificada."]})
+        # Validación: no permitir duplicados de cédula+empresa
+        if Solicitud.objects.filter(empresa=empresa, candidato__cedula=candidato.cedula).exists():
+            raise serializers.ValidationError({"cedula": ["Ya existe un estudio para esta cédula en esta empresa."]})
         solicitud = Solicitud.objects.create(empresa=empresa, candidato=candidato, **validated_data)
-        Estudio.objects.create(solicitud=solicitud)
+        estudio = Estudio.objects.create(solicitud=solicitud)
+
+        # Crear solo los items/subitems permitidos según la configuración personalizada
+        from apps.studies.models import ClienteConfiguracionFormulario, EstudioItem
+        # Lista de todos los tipos de items posibles (ajusta según tu modelo)
+        ALL_ITEMS = [
+            "BIOGRAFICOS", "INFO_FAMILIAR", "VIVIENDA", "ACADEMICO", "LABORAL", "REFERENCIAS",
+            "ECONOMICA", "PATRIMONIO", "DOCUMENTOS", "ANEXOS_FOTOGRAFICOS", "LISTAS_RESTRICTIVAS"
+        ]
+        # Obtener los items/subitems excluidos para la empresa
+        excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=empresa, excluido=True)
+        excluidos_dict = {}
+        for e in excluidos:
+            excluidos_dict.setdefault(e.item.upper(), set()).add(e.subitem.upper())
+
+        # Crear los items permitidos (sin los excluidos)
+        for item in ALL_ITEMS:
+            # Si el item está completamente excluido (todos los subitems), puedes omitirlo aquí si lo deseas
+            # Por ahora, creamos el item si no está completamente excluido
+            # Si tienes lógica de subitems, adáptala aquí
+            if item in excluidos_dict and len(excluidos_dict[item]) > 10:  # Ajusta el umbral según tus subitems
+                continue  # Omitir item completamente excluido
+            EstudioItem.objects.create(estudio=estudio, tipo=item)
+
         return solicitud
 
 
@@ -348,6 +374,7 @@ class EstudioSerializer(serializers.ModelSerializer):
             "decision_final", "finalizado_at",
             "editable_por_candidato",
             "items", "consentimientos",
+            "a_consideracion_cliente",
         ]
         read_only_fields = fields
 
@@ -508,11 +535,11 @@ class ClienteConfiguracionFormularioSerializer(serializers.ModelSerializer):
     class Meta:
         model = ClienteConfiguracionFormulario
         fields = ['id', 'empresa', 'item', 'subitem', 'excluido', 'creado', 'actualizado']
-        read_only_fields = ['id', 'creado', 'actualizado']
+        read_only_fields = ['id', 'empresa', 'creado', 'actualizado']
 
 
 # Serializer para políticas configurables del cliente
-from .models import ClientePoliticaConfiguracion
+from .models import ClientePoliticaConfiguracion, HistorialConfiguracion
 
 class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -521,4 +548,15 @@ class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
             'id', 'empresa', 'usuario', 'criterio', 'opcion',
             'no_relevante', 'bloqueado', 'creado', 'actualizado'
         ]
-        read_only_fields = ['id', 'creado', 'actualizado']
+        read_only_fields = ['id', 'empresa', 'usuario', 'bloqueado', 'creado', 'actualizado']
+
+
+class HistorialConfiguracionSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HistorialConfiguracion
+        fields = ['id', 'tipo', 'accion', 'item', 'subitem', 'fecha', 'usuario_nombre']
+
+    def get_usuario_nombre(self, obj):
+        return obj.usuario.username if obj.usuario else 'desconocido'
