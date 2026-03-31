@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.http import FileResponse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
@@ -372,11 +372,21 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 estudio.a_consideracion_cliente = True
                 estudio.save(update_fields=["a_consideracion_cliente"])
 
+        # Asignación equitativa (round-robin): el analista con menos estudios asignados
         User = get_user_model()
-        analista = (
-            User.objects.filter(rol="ANALISTA", is_active=True, empresa=emp).order_by("id").first()
-            or User.objects.filter(rol="ANALISTA", is_active=True).order_by("id").first()
-        )
+        analista = None
+        for scope in [
+            User.objects.filter(rol="ANALISTA", is_active=True, empresa=emp),
+            User.objects.filter(rol="ANALISTA", is_active=True),
+        ]:
+            analista = (
+                scope
+                .annotate(num_solicitudes=Count("solicitudes"))
+                .order_by("num_solicitudes", "id")
+                .first()
+            )
+            if analista:
+                break
         if analista and not solicitud.analista_id:
             solicitud.analista = analista
             solicitud.save(update_fields=["analista"])
@@ -515,6 +525,27 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         .prefetch_related("items", "documentos","consentimientos")
     )
     serializer_class = EstudioSerializer
+
+    @staticmethod
+    def _is_owner(est, user):
+        """True si el usuario puede editar este estudio (es ADMIN o el analista asignado)."""
+        rol = getattr(user, "rol", None)
+        if rol == "ADMIN":
+            return True
+        if rol == "ANALISTA":
+            return getattr(est.solicitud, "analista_id", None) == user.id
+        return True  # CLIENTE/CANDIDATO tienen sus propias restricciones
+
+    def _check_owner(self, est, request):
+        """Lanza 403 si el analista no es el propietario del estudio."""
+        # Solo el analista asignado puede editar/calificar
+        if getattr(request.user, "rol", None) == "ANALISTA":
+            analista = getattr(est.solicitud, "analista", None)
+            if not (analista and analista.id == request.user.id):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Solo el analista asignado puede editar este estudio.")
+        # Admin puede todo, los demás roles no editan
+        return None
 
 
     
@@ -709,6 +740,9 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         est = self.get_object()
         if getattr(request.user, "rol", None) not in ("ANALISTA", "ADMIN"):
             return Response({"detail": "Sin permiso."}, status=403)
+        denied = self._check_owner(est, request)
+        if denied:
+            return denied
 
         if (getattr(est, "estado", "") or "").upper() == "CERRADO":
             return Response({"detail": "El estudio está cerrado."}, status=400)
@@ -737,6 +771,9 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         est = self.get_object()
         if getattr(request.user, "rol", None) not in ("ANALISTA", "ADMIN"):
             return Response({"detail": "Sin permiso."}, status=403)
+        denied = self._check_owner(est, request)
+        if denied:
+            return denied
         if (getattr(est, "estado", "") or "").upper() == "CERRADO":
             return Response({"detail": "El estudio ya está cerrado."}, status=400)
 

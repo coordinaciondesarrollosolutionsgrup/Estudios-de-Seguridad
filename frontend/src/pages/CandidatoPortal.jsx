@@ -10,8 +10,6 @@ import ThreeBackground from "../components/ThreeBackground";
 import EvaluacionTratoModal from "../components/EvaluacionTratoModal";
 
 export default function CandidatoPortal() {
-    // Banner para estudios a consideración del cliente (oculto para el candidato)
-    const ConsideracionBanner = () => null;
   const navigate = useNavigate();
 
   const [estudio, setEstudio] = useState(null);
@@ -169,7 +167,6 @@ export default function CandidatoPortal() {
 
   return (
     <div className="relative min-h-screen">
-      <ConsideracionBanner />
       {/* Fondo */}
       <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(1200px_700px_at_25%_20%,rgba(255,255,255,0.08),transparent_60%),linear-gradient(180deg,#0b1220_0%,#0a0f1a_100%)]" />
       <ThreeBackground />
@@ -229,7 +226,12 @@ export default function CandidatoPortal() {
                     <div className="pt-2 flex justify-end">
                       <button
                         onClick={enviar}
-                        className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-sm hover:bg-indigo-500"
+                        className={
+                          `px-3 py-1.5 rounded-full text-sm font-semibold transition
+                          bg-slate-700 text-white/90
+                          border-2
+                          border-slate-600 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200`
+                        }
                       >
                         Enviar para revisión
                       </button>
@@ -331,7 +333,12 @@ export default function CandidatoPortal() {
                   try { await api.post("/api/auth/logout/"); } catch {}
                   navigate("/login");
                 }}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm"
+                className={
+                  `px-3 py-1.5 rounded-full text-sm font-semibold transition
+                  bg-slate-700 text-white/90
+                  border-2
+                  border-slate-600 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200`
+                }
               >
                 Ir al login
               </button>

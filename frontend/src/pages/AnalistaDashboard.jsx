@@ -1586,11 +1586,13 @@ export default function AnalistaDashboard() {
     const delPer = (i) =>
       setRefs((r) => ({ ...r, personales: r.personales.filter((_, idx) => idx !== i) }));
 
+    // Nuevo: ¿es propietario?
+    const isOwner = !!sel?.es_propietario;
     return (
       <Box
         title="📝 Referencias"
         right={
-          !isClosed && (
+          !isClosed && isOwner && (
             <button
               onClick={saveReferencias}
               disabled={savingRefs}
@@ -1615,17 +1617,17 @@ export default function AnalistaDashboard() {
                     placeholder="Funcionario que referencia"
                     value={r.funcionario || ""}
                     onChange={(e) => updLab(i, "funcionario", e.target.value)}
-                    disabled={isClosed}
+                    disabled={isClosed || !isOwner}
                   />
                   <input
                     className={inputClass}
                     placeholder="Cargo de quien referencia"
                     value={r.cargo || ""}
                     onChange={(e) => updLab(i, "cargo", e.target.value)}
-                    disabled={isClosed}
+                    disabled={isClosed || !isOwner}
                   />
                 </div>
-                {!isClosed && (
+                {!isClosed && isOwner && (
                   <div className="mt-2 text-right">
                     <button
                       onClick={() => delLab(i)}
@@ -1637,7 +1639,7 @@ export default function AnalistaDashboard() {
                 )}
               </div>
             ))}
-            {!isClosed && (
+            {!isClosed && isOwner && (
               <button
                 onClick={addLab}
                 disabled={refs.laborales.length >= max}
@@ -1661,17 +1663,17 @@ export default function AnalistaDashboard() {
                     placeholder="Nombre"
                     value={r.nombre || ""}
                     onChange={(e) => updPer(i, "nombre", e.target.value)}
-                    disabled={isClosed}
+                    disabled={isClosed || !isOwner}
                   />
                   <input
                     className={inputClass}
                     placeholder="Familiar (parentesco)"
                     value={r.familiar || ""}
                     onChange={(e) => updPer(i, "familiar", e.target.value)}
-                    disabled={isClosed}
+                    disabled={isClosed || !isOwner}
                   />
                 </div>
-                {!isClosed && (
+                {!isClosed && isOwner && (
                   <div className="mt-2 text-right">
                     <button
                       onClick={() => delPer(i)}
@@ -1683,7 +1685,7 @@ export default function AnalistaDashboard() {
                 )}
               </div>
             ))}
-            {!isClosed && (
+            {!isClosed && isOwner && (
               <button
                 onClick={addPer}
                 disabled={refs.personales.length >= max}
@@ -1796,35 +1798,40 @@ export default function AnalistaDashboard() {
                       empresa = empresa.nombre || empresa.id || JSON.stringify(empresa);
                     }
                     empresa = String(empresa);
+                    const noPropio = es.es_propietario === false;
                     return (
                       <button
                         key={es.id}
                         onClick={() => openEstudio(es.id)}
-                        className={`w-full text-left p-4 border-b border-white/10 last:border-b-0 transition ${
-                          sel?.id === es.id ? "bg-white/5" : "hover:bg-white/5"
-                        }`}
+                        className={`w-full text-left p-4 border-b border-white/10 last:border-b-0 transition
+                          ${sel?.id === es.id ? "bg-white/5" : "hover:bg-white/5"}
+                          ${noPropio ? "bg-gray-700/40 text-gray-300 hover:bg-gray-700/60" : ""}`}
+                        style={noPropio ? { opacity: 0.7, filter: 'grayscale(0.5)' } : {}}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="font-semibold">#{es.id} - {nombre} {apellido}</span>
+                            <span className={`font-semibold ${noPropio ? "text-gray-300" : ""}`}>#{es.id} - {nombre} {apellido}</span>
                             {!!es.nivel_cualitativo && (
                               <Badge color={riesgoColor(es.nivel_cualitativo)}>
                                 {es.nivel_cualitativo}
                               </Badge>
                             )}
                             {typeof es.score_cuantitativo === "number" && (
-                              <span className="ml-2 text-xs font-semibold text-blue-300 bg-blue-500/10 rounded-full px-2 py-0.5">
+                              <span className={`ml-2 text-xs font-semibold rounded-full px-2 py-0.5 ${noPropio ? "bg-gray-500/20 text-gray-300" : "text-blue-300 bg-blue-500/10"}`}>
                                 {Math.round(es.score_cuantitativo)}%
                               </span>
                             )}
                           </div>
-                          <span className="text-xs text-white/60">{Math.round(progress)}%</span>
+                          <span className={`text-xs ${noPropio ? "text-gray-400" : "text-white/60"}`}>{Math.round(progress)}%</span>
                         </div>
                         <div className="mt-2">
                           <MiniBar value={progress} />
                         </div>
                         {empresa && (
-                          <div className="mt-1 text-xs text-white/60 font-medium">{empresa}</div>
+                          <div className={`mt-1 text-xs font-medium ${noPropio ? "text-gray-400" : "text-white/60"}`}>{empresa}</div>
+                        )}
+                        {noPropio && (
+                          <div className="mt-1 text-xs text-gray-400 italic">No asignado</div>
                         )}
                       </button>
                     );
@@ -2035,6 +2042,7 @@ export function Detalle({
   TabDescripcionVivienda,
   TabListasRestrictivas,
 }) {
+  const isOwner = !!sel?.es_propietario;
   return (
     <div className="space-y-3">
       <h2 className="text-xl font-semibold">Detalle</h2>
@@ -2076,19 +2084,21 @@ export function Detalle({
               <div className="w-40">
                 <MiniBar value={selectedProgress} />
               </div>
-              <button
-                onClick={invitarCandidato}
-                className="px-3 py-1.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white text-sm disabled:opacity-60 flex items-center gap-1.5"
-                disabled={isClosed || invitando}
-              >
-                {invitando && (
-                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                  </svg>
-                )}
-                {invitando ? "Enviando…" : "Invitar candidato"}
-              </button>
+              {isOwner && (
+                <button
+                  onClick={invitarCandidato}
+                  className="px-3 py-1.5 rounded-full bg-indigo-600/90 hover:bg-indigo-600 text-white text-sm disabled:opacity-60 flex items-center gap-1.5"
+                  disabled={isClosed || invitando}
+                >
+                  {invitando && (
+                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                    </svg>
+                  )}
+                  {invitando ? "Enviando…" : "Invitar candidato"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -2098,48 +2108,51 @@ export function Detalle({
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
             {!isClosed ? (
-              <>
-                <button
-                  onClick={openObs}
-                  className="px-3 py-1.5 rounded-full border border-white/15 hover:bg-white/10 text-white text-sm"
-                >
-                  Concepto Final
-                </button>
-                <button
-                  onClick={devolver}
-                  disabled={devolviendo}
-                  className="px-3 py-1.5 rounded-full bg-amber-600/90 hover:bg-amber-600 text-white text-sm disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  {devolviendo && (
-                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                    </svg>
-                  )}
-                  {devolviendo ? "Devolviendo…" : "Devolver"}
-                </button>
-                <button
-                  onClick={() => openDecidir("APTO")}
-                  className="px-3 py-1.5 rounded-full bg-emerald-600/90 hover:bg-emerald-600 text-white text-sm"
-                >
-                  Cerrar: APTO
-                </button>
-                <button
-                  onClick={() => openDecidir("NO_APTO")}
-                  className="px-3 py-1.5 rounded-full bg-rose-600/90 hover:bg-rose-600 text-white text-sm"
-                >
-                  Cerrar: NO APTO
-                </button>
+              isOwner && <>
+                <span className="text-base font-semibold text-white mr-2">Concepto Final</span>
+                <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-yellow-500/90 to-transparent">
+                  <button
+                    onClick={devolver}
+                    disabled={devolviendo}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-amber-500 hover:shadow-[0_0_10px_2px_rgba(245,158,11,0.4)] transition disabled:opacity-60"
+                  >
+                    {devolviendo && (
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                      </svg>
+                    )}
+                    {devolviendo ? "Devolviendo…" : "Devolver"}
+                  </button>
+                </div>
+                <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-emerald-500/80 to-transparent">
+                  <button
+                    onClick={() => openDecidir("APTO")}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-emerald-500 hover:shadow-[0_0_10px_2px_rgba(16,185,129,0.4)] transition"
+                  >
+                    Cerrar: APTO
+                  </button>
+                </div>
+                <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-rose-500/80 to-transparent">
+                  <button
+                    onClick={() => openDecidir("NO_APTO")}
+                    className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-rose-500 hover:shadow-[0_0_10px_2px_rgba(244,63,94,0.4)] transition"
+                  >
+                    Cerrar: NO APTO
+                  </button>
+                </div>
                 {/* Botón especial para aprobación bajo consideración del cliente */}
                 {sel.a_consideracion_cliente && (
-                  <button
-                    onClick={() => openDecidir("APTO_CONSIDERACION")}
-                    className="px-3 py-1.5 rounded-full bg-yellow-500/90 hover:bg-yellow-500 text-white text-sm border border-yellow-700"
-                  >
-                    Aprobar bajo consideración del cliente
-                  </button>
+                  <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-yellow-500/90 to-transparent">
+                    <button
+                      onClick={() => openDecidir("APTO_CONSIDERACION")}
+                      className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-amber-500 hover:shadow-[0_0_10px_2px_rgba(245,158,11,0.4)] transition"
+                    >
+                      Aprobar bajo consideración del cliente
+                    </button>
+                  </div>
                 )}
               </>
             ) : (
@@ -2170,9 +2183,13 @@ export function Detalle({
                 <button
                   key={key}
                   onClick={() => setTab(key)}
-                  className={`px-3 py-1.5 rounded-full text-sm ring-1 transition ${
-                    tab === key ? "bg-white/20 ring-white/20" : "bg-white/10 hover:bg-white/15 ring-white/10"
-                  }`}
+                  className={`px-3 py-1.5 rounded-full text-sm font-semibold transition
+                    bg-slate-700 text-white/90
+                    border-2
+                    ${tab === key
+                      ? "border-violet-500 shadow-[0_0_10px_2px_rgba(139,92,246,0.4)] bg-slate-800 text-violet-200"
+                      : "border-slate-600 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
+                  `}
                 >
                   {label}
                 </button>

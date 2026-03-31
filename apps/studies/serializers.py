@@ -91,11 +91,15 @@ class SolicitudCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         cand_data = validated_data.pop("candidato")
-        candidato, _ = Candidato.objects.get_or_create(cedula=cand_data["cedula"], defaults=cand_data)
         empresa = validated_data.pop("empresa", None) or self.context.get("empresa")
         if empresa is None:
             raise serializers.ValidationError({"empresa": ["Empresa no especificada."]})
-        # Validación: no permitir duplicados de cédula+empresa
+        # Siempre crear un nuevo candidato, aunque la cédula/correo sea igual
+        cand_data = dict(cand_data)
+        # Eliminar el id si viene en el payload para evitar conflictos
+        cand_data.pop("id", None)
+        candidato = Candidato.objects.create(**cand_data)
+        # Validación: no permitir duplicados de cédula+empresa (pero ahora cada candidato es único)
         if Solicitud.objects.filter(empresa=empresa, candidato__cedula=candidato.cedula).exists():
             raise serializers.ValidationError({"cedula": ["Ya existe un estudio para esta cédula en esta empresa."]})
         solicitud = Solicitud.objects.create(empresa=empresa, candidato=candidato, **validated_data)
@@ -103,24 +107,18 @@ class SolicitudCreateSerializer(serializers.ModelSerializer):
 
         # Crear solo los items/subitems permitidos según la configuración personalizada
         from apps.studies.models import ClienteConfiguracionFormulario, EstudioItem
-        # Lista de todos los tipos de items posibles (ajusta según tu modelo)
         ALL_ITEMS = [
             "BIOGRAFICOS", "INFO_FAMILIAR", "VIVIENDA", "ACADEMICO", "LABORAL", "REFERENCIAS",
             "ECONOMICA", "PATRIMONIO", "DOCUMENTOS", "ANEXOS_FOTOGRAFICOS", "LISTAS_RESTRICTIVAS"
         ]
-        # Obtener los items/subitems excluidos para la empresa
         excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=empresa, excluido=True)
         excluidos_dict = {}
         for e in excluidos:
             excluidos_dict.setdefault(e.item.upper(), set()).add(e.subitem.upper())
 
-        # Crear los items permitidos (sin los excluidos)
         for item in ALL_ITEMS:
-            # Si el item está completamente excluido (todos los subitems), puedes omitirlo aquí si lo deseas
-            # Por ahora, creamos el item si no está completamente excluido
-            # Si tienes lógica de subitems, adáptala aquí
-            if item in excluidos_dict and len(excluidos_dict[item]) > 10:  # Ajusta el umbral según tus subitems
-                continue  # Omitir item completamente excluido
+            if item in excluidos_dict and len(excluidos_dict[item]) > 10:
+                continue
             EstudioItem.objects.create(estudio=estudio, tipo=item)
 
         return solicitud
@@ -359,6 +357,7 @@ class EstudioSerializer(serializers.ModelSerializer):
     empresa = EmpresaMiniSerializer(source="solicitud.empresa", read_only=True)
     candidato = CandidatoMiniSerializer(source="solicitud.candidato", read_only=True)
     analista = serializers.SerializerMethodField()
+    es_propietario = serializers.SerializerMethodField()
     items = EstudioItemSerializer(many=True, read_only=True)
     consentimientos = serializers.SerializerMethodField()
     editable_por_candidato = serializers.SerializerMethodField()
@@ -367,7 +366,7 @@ class EstudioSerializer(serializers.ModelSerializer):
         model = Estudio
         fields = [
             "id", "solicitud_id",
-            "empresa", "candidato", "analista",
+            "empresa", "candidato", "analista", "es_propietario",
             "autorizacion_firmada", "autorizacion_fecha",
             "progreso", "score_cuantitativo", "nivel_cualitativo",
             "estado", "enviado_at", "observacion_analista",
@@ -382,7 +381,21 @@ class EstudioSerializer(serializers.ModelSerializer):
         a = getattr(obj.solicitud, "analista", None)
         if not a:
             return None
-        return {"id": a.id, "username": a.username, "email": a.email or ""}
+        nombre_completo = f"{a.first_name} {a.last_name}".strip() or a.username
+        return {"id": a.id, "username": a.username, "nombre": nombre_completo, "email": a.email or ""}
+
+    def get_es_propietario(self, obj):
+        request = self.context.get("request")
+        if not request:
+            return True
+        user = request.user
+        rol = getattr(user, "rol", None)
+        if rol == "ADMIN":
+            return True
+        if rol == "ANALISTA":
+            analista = getattr(obj.solicitud, "analista", None)
+            return bool(analista and analista.id == user.id)
+        return True
 
     def get_consentimientos(self, obj):
         qs = obj.consentimientos.all().order_by("tipo")

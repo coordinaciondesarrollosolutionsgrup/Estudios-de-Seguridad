@@ -31,74 +31,474 @@ except Exception:
 
 # ----- CSS -----
 PRINT_CSS = """
-@page{
+@page {
   size: A4;
-  margin: 18mm 16mm;
-  background: linear-gradient(180deg,#0a1430 0%, #0b1e44 45%, #0b1220 100%);
-  @bottom-right { color:#d7e3ff; content: "pág. " counter(page) " / " counter(pages); }
+  margin: 0;
+  @bottom-center {
+    content: "eConfia · Estudio de Seguridad · Pag. " counter(page) " de " counter(pages);
+    font-size: 8pt;
+    color: #94a3b8;
+    padding-bottom: 6mm;
+  }
 }
 
-:root{ --muted:#a9bbd6; --ink:#eef3ff; --primary:#1d4ed8; --accent:#22d3ee; --ok:#10b981; --err:#ef4444; }
-html, body { color: var(--ink); }
-body{ font:11pt 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-*{ hyphens:auto; overflow-wrap:anywhere; }
-
-.header{
-  margin:-12mm -16mm 8mm; padding:18mm 16mm 12mm;
-  background:linear-gradient(180deg,rgba(11,18,32,.85) 0%, rgba(19,42,94,.92) 100%);
-  border-bottom:1px solid rgba(255,255,255,.06);
-}
-.h1{ font-weight:800; font-size:20pt; margin:0 0 4mm; hyphens:none; word-break:normal; overflow-wrap:normal; }
-.sub{ color:var(--muted); }
-.chips{ margin-top:6mm; display:flex; gap:6mm; flex-wrap:wrap; }
-.chip{ color:#fff; padding:3px 8px; border-radius:8px; font:9pt/1.4 sans-serif; display:inline-block; }
-.chip--state{ background:var(--primary) } .chip--decision{ background:var(--ok) }
-.chip--decision.no{ background:var(--err) } .chip--progress{ background:#0ea5e9 }
-
-.section{ margin:8mm 0 4mm; display:flex; align-items:center; gap:6mm; page-break-after:avoid; }
-.dot{ width:6mm; height:6mm; border-radius:2mm; background:var(--accent); }
-.h2{ font-weight:700; font-size:12pt; color:#e6eeff; }
-
-.card{
-  background:rgba(255,255,255,.045);
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:10px; padding:6mm;
-  box-shadow: inset 0 10px 30px rgba(0,0,0,.25);
-}
-.card.nobreak{ break-inside: avoid; page-break-inside: avoid; }
-
-.note{
-  border:1px dashed rgba(245,158,11,.5); background:rgba(245,158,11,.12);
-  color:#fde68a; padding:4mm; border-radius:8px; margin:4mm 0 0;
-  break-inside: avoid; page-break-inside: avoid;
+:root {
+  --bg:       #0d1829;
+  --surface:  #132035;
+  --surface2: #1a2d48;
+  --border:   #1e3a5f;
+  --border2:  #2a4a72;
+  --ink:      #e2e8f0;
+  --ink2:     #cbd5e1;
+  --muted:    #94a3b8;
+  --primary:  #38bdf8;
+  --primary2: #7dd3fc;
+  --accent:   #0ea5e9;
+  --ok:       #34d399;
+  --ok-bg:    rgba(52,211,153,.15);
+  --ok-brd:   rgba(52,211,153,.35);
+  --err:      #f87171;
+  --err-bg:   rgba(248,113,113,.15);
+  --err-brd:  rgba(248,113,113,.35);
+  --warn:     #fbbf24;
+  --warn-bg:  rgba(251,191,36,.12);
+  --warn-brd: rgba(251,191,36,.35);
+  --blue-bg:  rgba(56,189,248,.10);
+  --blue-brd: rgba(56,189,248,.25);
+  --radius:   8px;
 }
 
-/* Tablas */
-.table{ width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; margin-top:3mm }
-.table thead{ display:table-header-group; }
-.table th{
-  background:#122243; color:#d7e3ff; text-align:left; padding:6px 8px;
-  font-weight:700; font-size:10pt; vertical-align:top;
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 10pt/1.5 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif;
 }
-.table td{
-  background:#0f172a; color:#eef3ff; padding:6px 8px; font-size:10pt;
-  border-top:1px solid #20304f; vertical-align:top; word-break:break-word;
+
+* { box-sizing: border-box; hyphens: auto; overflow-wrap: anywhere; }
+
+/* ── HEADER ─────────────────────────────── */
+.page-header {
+  background: linear-gradient(135deg, #060f1e 0%, #0b1f40 40%, #0f3460 70%, #1558a0 100%);
+  padding: 10mm 16mm 8mm;
+  color: #fff;
+  page-break-inside: avoid;
+  border-bottom: 2px solid #1d4ed8;
 }
-.table td.file a{ color:#93c5fd; text-decoration:underline; }
-.table tr{ page-break-inside:avoid; }
-.table tr:nth-child(even) td{ background:#0c152b }
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 5mm;
+}
+.brand {
+  font-size: 13pt;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.report-meta {
+  text-align: right;
+  font-size: 8pt;
+  color: #94a3b8;
+  line-height: 1.7;
+}
+.header-title {
+  font-size: 20pt;
+  font-weight: 800;
+  letter-spacing: -.5px;
+  margin: 0 0 1mm;
+  line-height: 1.2;
+  color: #f1f5f9;
+}
+.header-sub {
+  font-size: 10pt;
+  color: #94a3b8;
+  margin-bottom: 5mm;
+}
+.chips {
+  display: flex;
+  gap: 3mm;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.5mm;
+  padding: 3px 11px;
+  border-radius: 20px;
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  border: 1.5px solid rgba(56,189,248,.3);
+  background: rgba(56,189,248,.12);
+  color: #7dd3fc;
+}
+.chip--apto   { background: rgba(52,211,153,.2); border-color: rgba(52,211,153,.5); color: #34d399; }
+.chip--noapto { background: rgba(248,113,113,.2); border-color: rgba(248,113,113,.5); color: #f87171; }
+.chip--prog   { background: rgba(14,165,233,.15); border-color: rgba(14,165,233,.35); }
+.chip--bajo   { background: rgba(52,211,153,.2);  border-color: rgba(52,211,153,.5);  color: #34d399; }
+.chip--medio  { background: rgba(251,191,36,.15); border-color: rgba(251,191,36,.4);  color: #fbbf24; }
+.chip--alto   { background: rgba(251,146,60,.2);  border-color: rgba(251,146,60,.5);  color: #fb923c; }
+.chip--critico{ background: rgba(248,113,113,.2); border-color: rgba(248,113,113,.5); color: #f87171; }
 
-.kvtable{ width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; }
-.kvtable td{ padding:4px 8px; vertical-align:top; font-size:10.5pt; }
-.kvk{ color:#c7d6f5; font-size:9pt; }
-.kvtable col.k1{ width:18%; } .kvtable col.v1{ width:32%; }
-.kvtable col.k2{ width:18%; } .kvtable col.v2{ width:32%; }
+/* ── BODY WRAPPER ────────────────────────── */
+.body-wrap {
+  padding: 8mm 16mm 12mm;
+  background: var(--bg);
+}
 
-.small{ color:#b5c7e6; font-size:9pt; margin-top:6mm }
+/* ── PROFILE BLOCK ───────────────────────── */
+.profile-block {
+  display: flex;
+  gap: 6mm;
+  margin-bottom: 6mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.profile-photo {
+  flex-shrink: 0;
+  width: 32mm;
+  height: 40mm;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--border2);
+  background: var(--surface2);
+}
+.profile-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.profile-data {
+  flex: 1;
+}
 
-.imgthumb{
-  width:58mm; height:38mm; object-fit:cover; border-radius:6px;
-  border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04);
+/* ── SECTION HEADING ─────────────────────── */
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  margin: 7mm 0 2.5mm;
+  page-break-after: avoid;
+}
+.sec-bar {
+  width: 3mm;
+  height: 5mm;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #38bdf8, #818cf8);
+  flex-shrink: 0;
+}
+.sec-title {
+  font-size: 9.5pt;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.sec-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── CARD ────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5mm;
+}
+.card.nobreak { break-inside: avoid; page-break-inside: avoid; }
+
+/* ── KV TABLE ────────────────────────────── */
+.kvtable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.kvtable td {
+  padding: 2.5px 6px;
+  vertical-align: top;
+  font-size: 9pt;
+}
+.kvk {
+  color: var(--muted);
+  font-size: 8pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.kvv {
+  color: var(--ink);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.kvtable col.k { width: 19%; }
+.kvtable col.v { width: 31%; }
+
+/* ── DATA TABLE ──────────────────────────── */
+.dtable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 9pt;
+  margin-top: 2mm;
+}
+.dtable thead tr {
+  background: linear-gradient(90deg, #0f2d52, #163d6e);
+}
+.dtable th {
+  color: #7dd3fc;
+  text-align: left;
+  padding: 4px 7px;
+  font-weight: 700;
+  font-size: 8pt;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  border-bottom: 1px solid var(--border2);
+}
+.dtable td {
+  padding: 4px 7px;
+  color: var(--ink2);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  word-break: break-word;
+}
+.dtable tr:nth-child(even) td { background: rgba(255,255,255,.025); }
+.dtable tr { page-break-inside: avoid; }
+.dtable td a { color: var(--primary); text-decoration: none; }
+
+/* ── SUMMARY GRID ────────────────────────── */
+.summary-grid {
+  display: flex;
+  gap: 4mm;
+  flex-wrap: wrap;
+}
+.summary-cell {
+  flex: 1;
+  min-width: 28mm;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 3mm 4mm;
+  text-align: center;
+}
+.summary-cell .num {
+  font-size: 20pt;
+  font-weight: 800;
+  color: var(--primary);
+  line-height: 1;
+}
+.summary-cell .lbl {
+  font-size: 8pt;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-top: 1mm;
+}
+.progress-bar-wrap {
+  background: var(--border);
+  border-radius: 20px;
+  height: 5px;
+  margin-top: 3mm;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 5px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+}
+
+/* ── RISK METER ──────────────────────────── */
+.risk-cell {
+  flex: 1;
+  min-width: 28mm;
+  border-radius: 6px;
+  padding: 3mm 4mm;
+  text-align: center;
+  border: 1px solid;
+}
+.risk-cell.bajo    { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.35); }
+.risk-cell.medio   { background: rgba(251,191,36,.10); border-color: rgba(251,191,36,.35); }
+.risk-cell.alto    { background: rgba(251,146,60,.12); border-color: rgba(251,146,60,.40); }
+.risk-cell.critico { background: rgba(248,113,113,.14);border-color: rgba(248,113,113,.45); }
+.risk-cell .rlbl { font-size: 8pt; color: var(--muted); text-transform: uppercase; letter-spacing:.4px; margin-bottom:1mm; }
+.risk-cell .rnum { font-size: 20pt; font-weight: 800; line-height: 1; }
+.risk-cell.bajo    .rnum { color: #34d399; }
+.risk-cell.medio   .rnum { color: #fbbf24; }
+.risk-cell.alto    .rnum { color: #fb923c; }
+.risk-cell.critico .rnum { color: #f87171; }
+.risk-cell .rnivel { font-size: 9pt; font-weight: 700; text-transform: uppercase; letter-spacing:.5px; margin-top:1mm; }
+.risk-cell.bajo    .rnivel { color: #34d399; }
+.risk-cell.medio   .rnivel { color: #fbbf24; }
+.risk-cell.alto    .rnivel { color: #fb923c; }
+.risk-cell.critico .rnivel { color: #f87171; }
+
+/* ── NOTE / WARNING ──────────────────────── */
+.note {
+  border-left: 3px solid var(--warn);
+  background: var(--warn-bg);
+  color: #fbbf24;
+  padding: 3mm 4mm;
+  border-radius: 0 6px 6px 0;
+  font-size: 9pt;
+  margin-top: 3mm;
+  break-inside: avoid;
+}
+
+/* ── HEAT MAP ────────────────────────────── */
+.heatmap-wrap { margin: 3mm 0 4mm; }
+.heatmap-bar {
+  display: flex;
+  height: 9mm;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border2);
+}
+.hm-seg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 7pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: rgba(255,255,255,.45);
+  opacity: .4;
+}
+.hm-seg.hm-active {
+  opacity: 1;
+  color: #fff;
+}
+.hm-seg.hm-active .hm-arrow { display: block; }
+.hm-arrow { display: none; font-size: 6pt; margin-bottom: 1px; }
+.hm-bajo    { background: linear-gradient(180deg, #065f46, #059669); }
+.hm-medio   { background: linear-gradient(180deg, #78350f, #d97706); }
+.hm-alto    { background: linear-gradient(180deg, #7c2d12, #ea580c); }
+.hm-critico { background: linear-gradient(180deg, #7f1d1d, #dc2626); }
+.heatmap-labels {
+  display: flex;
+  margin-top: 1.5mm;
+  font-size: 7.5pt;
+  color: var(--muted);
+}
+.heatmap-labels span { flex: 1; text-align: center; }
+.score-gauge {
+  position: relative;
+  height: 4mm;
+  margin-top: 2mm;
+  background: linear-gradient(90deg, #059669 0%, #d97706 40%, #ea580c 65%, #dc2626 100%);
+  border-radius: 20px;
+  overflow: visible;
+}
+.score-marker {
+  position: absolute;
+  top: -1.5mm;
+  width: 3mm;
+  height: 7mm;
+  background: #fff;
+  border-radius: 2px;
+  border: 1.5px solid rgba(0,0,0,.4);
+  transform: translateX(-50%);
+  box-shadow: 0 0 4px rgba(0,0,0,.5);
+}
+
+/* ── EXEC SUMMARY ────────────────────────── */
+.exec-block {
+  display: flex;
+  gap: 6mm;
+  align-items: flex-start;
+}
+.exec-score-box {
+  flex-shrink: 0;
+  width: 36mm;
+  border-radius: 8px;
+  padding: 4mm 3mm;
+  text-align: center;
+  border: 1.5px solid;
+}
+.exec-score-box.bajo    { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.4); }
+.exec-score-box.medio   { background: rgba(251,191,36,.10); border-color: rgba(251,191,36,.4); }
+.exec-score-box.alto    { background: rgba(251,146,60,.12); border-color: rgba(251,146,60,.45); }
+.exec-score-box.critico { background: rgba(248,113,113,.14);border-color: rgba(248,113,113,.5); }
+.exec-score-box .elbl { font-size: 7.5pt; color: var(--muted); text-transform: uppercase; letter-spacing:.5px; }
+.exec-score-box .enum { font-size: 26pt; font-weight: 900; line-height: 1; margin: 1mm 0; }
+.exec-score-box.bajo    .enum { color: #34d399; }
+.exec-score-box.medio   .enum { color: #fbbf24; }
+.exec-score-box.alto    .enum { color: #fb923c; }
+.exec-score-box.critico .enum { color: #f87171; }
+.exec-score-box .enivel { font-size: 9pt; font-weight: 800; text-transform: uppercase; letter-spacing:.6px; }
+.exec-score-box.bajo    .enivel { color: #34d399; }
+.exec-score-box.medio   .enivel { color: #fbbf24; }
+.exec-score-box.alto    .enivel { color: #fb923c; }
+.exec-score-box.critico .enivel { color: #f87171; }
+.exec-text { flex: 1; }
+.exec-text p { margin: 0 0 2mm; font-size: 9.5pt; color: var(--ink2); line-height: 1.6; }
+.exec-text p.lead { font-size: 10.5pt; color: var(--ink); font-weight: 600; margin-bottom: 2.5mm; }
+.exec-bullets { list-style: none; margin: 0; padding: 0; }
+.exec-bullets li { padding: 1.5px 0 1.5px 4mm; font-size: 9pt; color: var(--ink2); position: relative; }
+.exec-bullets li::before { content: "›"; position: absolute; left: 0; color: var(--primary); font-weight: 700; }
+
+/* ── PHOTO GRID ──────────────────────────── */
+.photo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4mm;
+  margin-top: 1mm;
+}
+.photo-item {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  text-align: center;
+}
+.photo-item img {
+  width: 52mm;
+  height: 38mm;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1.5px solid var(--border2);
+  display: block;
+}
+.photo-label {
+  font-size: 8pt;
+  color: var(--muted);
+  margin-top: 1.5mm;
+  text-align: center;
+}
+
+/* ── STATUS BADGE ────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 8pt;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge--ok   { background: var(--ok-bg);   color: var(--ok);   border: 1px solid var(--ok-brd); }
+.badge--err  { background: var(--err-bg);  color: var(--err);  border: 1px solid var(--err-brd); }
+.badge--warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-brd); }
+.badge--blue { background: var(--blue-bg); color: var(--primary); border: 1px solid var(--blue-brd); }
+
+/* ── FOOTER ──────────────────────────────── */
+.report-footer {
+  margin-top: 8mm;
+  padding-top: 4mm;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 8pt;
+  color: var(--muted);
 }
 """
 
@@ -265,8 +665,8 @@ def _build_html(est: Estudio, request) -> str:
     if acad:
         rows = []
         for a in acad:
-            url = _abs_file_url(request, getattr(a, "archivo", None))
-            name = _filename(getattr(a, "archivo", None)) or "archivo"
+            url  = _abs_file_url(request, getattr(a, "archivo", None))
+            name = _filename(getattr(a, "archivo", None)) or "Soporte"
             soporte_cell = f'<a href="{escape(url)}">{escape(name)}</a>' if url else "—"
             rows.append(
                 "<tr>"
@@ -274,31 +674,31 @@ def _build_html(est: Estudio, request) -> str:
                 f"<td>{escape(_fmt(a.institucion))}</td>"
                 f"<td>{escape(_fdate(getattr(a,'fecha_graduacion', None)))}</td>"
                 f"<td>{escape(_fmt(getattr(a,'ciudad', None)))}</td>"
-                f"<td>{escape('Original' if getattr(a,'presenta_original', False) else 'Copia')}</td>"
-                f"<td class='file'>{soporte_cell}</td>"
+                f"<td>{'Original' if getattr(a,'presenta_original', False) else 'Copia'}</td>"
+                f"<td>{soporte_cell}</td>"
                 "</tr>"
             )
-        sections.append(f"""
-          <section class="section"><span class="dot"></span><div class="h2">Académico</div></section>
-          <div class="card">
-            <table class="table">
-              <colgroup>
-                <col style="width:28%"><col style="width:20%"><col style="width:12%"><col style="width:12%"><col style="width:10%"><col style="width:18%">
-              </colgroup>
-              <thead><tr><th>Título</th><th>Institución</th><th>Graduación</th><th>Ciudad</th><th>Presenta</th><th>Soporte</th></tr></thead>
-              <tbody>{''.join(rows)}</tbody>
-            </table>
-          </div>
-        """)
+        sections.append(
+            '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Academico</div><div class="sec-line"></div></div>'
+            '<div class="card"><table class="dtable">'
+            '<colgroup><col style="width:28%"><col style="width:22%"><col style="width:12%"><col style="width:12%"><col style="width:10%"><col style="width:16%"></colgroup>'
+            '<thead><tr><th>Titulo</th><th>Institucion</th><th>Graduacion</th><th>Ciudad</th><th>Presenta</th><th>Soporte</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>'
+        )
 
     # ===== Laboral =====
     lab = list(est.laborales.all())
     if lab:
         rows = []
         for l in lab:
-            url = _abs_file_url(request, getattr(l, "certificado", None))
-            name = _filename(getattr(l, "certificado", None)) or "archivo"
+            url  = _abs_file_url(request, getattr(l, "certificado", None))
+            name = _filename(getattr(l, "certificado", None)) or "Certificado"
             cert_cell = f'<a href="{escape(url)}">{escape(name)}</a>' if url else "—"
+            rec = _yesno(getattr(l, "volveria_contratar", None))
+            rec_badge = (
+                '<span class="badge badge--ok">Si</span>' if rec == "Sí" else
+                '<span class="badge badge--err">No</span>' if rec == "No" else rec
+            )
             rows.append(
                 "<tr>"
                 f"<td>{escape(_fmt(l.empresa))}</td>"
@@ -306,32 +706,32 @@ def _build_html(est: Estudio, request) -> str:
                 f"<td>{escape(_fdate(getattr(l,'ingreso', None)))}</td>"
                 f"<td>{escape(_fdate(getattr(l,'retiro', None)))}</td>"
                 f"<td>{escape(_fmt(getattr(l,'tipo_contrato', None)))}</td>"
-                f"<td>{escape(_yesno(getattr(l,'volveria_contratar', None)))}</td>"
-                f"<td class='file'>{cert_cell}</td>"
+                f"<td>{rec_badge}</td>"
+                f"<td>{cert_cell}</td>"
                 "</tr>"
             )
-        sections.append(f"""
-          <section class="section"><span class="dot"></span><div class="h2">Laboral</div></section>
-          <div class="card">
-            <table class="table">
-              <colgroup>
-                <col style="width:22%"><col style="width:18%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:12%"><col style="width:12%">
-              </colgroup>
-              <thead><tr><th>Empresa</th><th>Cargo</th><th>Ingreso</th><th>Retiro</th><th>Contrato</th><th>¿Recontrataría?</th><th>Certificado</th></tr></thead>
-              <tbody>{''.join(rows)}</tbody>
-            </table>
-          </div>
-        """)
+        sections.append(
+            '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Laboral</div><div class="sec-line"></div></div>'
+            '<div class="card"><table class="dtable">'
+            '<colgroup><col style="width:22%"><col style="width:18%"><col style="width:11%"><col style="width:11%"><col style="width:13%"><col style="width:10%"><col style="width:15%"></colgroup>'
+            '<thead><tr><th>Empresa</th><th>Cargo</th><th>Ingreso</th><th>Retiro</th><th>Contrato</th><th>Recontratar</th><th>Certificado</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>'
+        )
 
     # ===== Económica =====
     eco = list(est.economicas.all())
     if eco:
         rows = []
         for e in eco:
+            neg = _yesno(getattr(e, "registra_negativos", None))
+            neg_cell = (
+                '<span class="badge badge--err">Si</span>' if neg == "Sí" else
+                '<span class="badge badge--ok">No</span>'  if neg == "No" else neg
+            )
             rows.append(
                 "<tr>"
-                f"<td>{escape(_fmt(getattr(e,'central', '')))}</td>"
-                f"<td>{_yesno(getattr(e,'registra_negativos', None))}</td>"
+                f"<td>{escape(_fmt(getattr(e,'central','')))}</td>"
+                f"<td>{neg_cell}</td>"
                 f"<td>{escape(_money(getattr(e,'deuda_actual', None)))}</td>"
                 f"<td>{_yesno(getattr(e,'acuerdo_pago', None))}</td>"
                 f"<td>{escape(_fdate(getattr(e,'fecha_acuerdo', None)))}</td>"
@@ -339,72 +739,63 @@ def _build_html(est: Estudio, request) -> str:
                 f"<td>{_yesno(getattr(e,'es_codeudor', None))}</td>"
                 "</tr>"
             )
-        sections.append(f"""
-          <section class="section"><span class="dot"></span><div class="h2">Información económica</div></section>
-          <div class="card">
-            <table class="table">
-              <colgroup>
-                <col style="width:22%"><col style="width:12%"><col style="width:14%"><col style="width:12%"><col style="width:14%"><col style="width:12%"><col style="width:14%">
-              </colgroup>
-              <thead><tr><th>Central</th><th>Negativos</th><th>Deuda</th><th>Acuerdo</th><th>Fecha acuerdo</th><th>Cuota</th><th>¿Codeudor?</th></tr></thead>
-              <tbody>{''.join(rows)}</tbody>
-            </table>
-          </div>
-        """)
+        sections.append(
+            '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Informacion economica</div><div class="sec-line"></div></div>'
+            '<div class="card"><table class="dtable">'
+            '<colgroup><col style="width:20%"><col style="width:11%"><col style="width:13%"><col style="width:11%"><col style="width:14%"><col style="width:11%"><col style="width:20%"></colgroup>'
+            '<thead><tr><th>Central</th><th>Negativos</th><th>Deuda</th><th>Acuerdo</th><th>Fecha acuerdo</th><th>Cuota</th><th>Codeudor</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div>'
+        )
 
-    # ===== Documentos / Centrales (links) =====
+    # ===== Documentos / Centrales =====
     docs = list(est.documentos.all())
     if docs:
-        rows_docs = []
-        rows_cent = []
+        rows_docs, rows_cent = [], []
         for d in docs:
-            url = _abs_file_url(request, getattr(d, "archivo", None))
-            nombre = d.nombre or (_filename(getattr(d, "archivo", None)) or "archivo")
-            cell = f'<a href="{escape(url)}">{escape(nombre)}</a>' if url else escape(nombre)
-            row = f"<tr><td class='file'>{cell}</td></tr>"
+            url    = _abs_file_url(request, getattr(d, "archivo", None))
+            nombre = d.nombre or (_filename(getattr(d, "archivo", None)) or "Archivo")
+            icon   = "📄 "
+            cell   = f'<a href="{escape(url)}">{icon}{escape(nombre)}</a>' if url else f'{icon}{escape(nombre)}'
+            row    = f"<tr><td>{cell}</td></tr>"
             (rows_cent if d.categoria == "CENTRALES" else rows_docs).append(row)
 
         if rows_docs:
-            sections.append(f"""
-              <section class="section"><span class="dot"></span><div class="h2">Documentos</div></section>
-              <div class="card">
-                <table class="table"><colgroup><col style="width:100%"></colgroup>
-                  <thead><tr><th>Archivo</th></tr></thead><tbody>{''.join(rows_docs)}</tbody>
-                </table>
-              </div>
-            """)
+            sections.append(
+                '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Documentos</div><div class="sec-line"></div></div>'
+                '<div class="card"><table class="dtable"><colgroup><col style="width:100%"></colgroup>'
+                f'<thead><tr><th>Archivo</th></tr></thead><tbody>{"".join(rows_docs)}</tbody></table></div>'
+            )
         if rows_cent:
-            sections.append(f"""
-              <section class="section"><span class="dot"></span><div class="h2">Centrales de riesgo</div></section>
-              <div class="card">
-                <table class="table"><colgroup><col style="width:100%"></colgroup>
-                  <thead><tr><th>Archivo</th></tr></thead><tbody>{''.join(rows_cent)}</tbody>
-                </table>
-              </div>
-            """)
+            sections.append(
+                '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Centrales de riesgo</div><div class="sec-line"></div></div>'
+                '<div class="card"><table class="dtable"><colgroup><col style="width:100%"></colgroup>'
+                f'<thead><tr><th>Archivo</th></tr></thead><tbody>{"".join(rows_cent)}</tbody></table></div>'
+            )
 
-    # ===== Anexos (thumbnail + link) =====
+    # ===== Anexos fotográficos (solo los que tienen archivo) =====
     anex = list(est.anexos_foto.all())
-    if anex:
-        thumbs = []
-        for ax in anex:
-            url = _abs_file_url(request, getattr(ax, "archivo", None))
-            label = escape(_fmt(ax.get_tipo_display()))
-            if url:
-                thumbs.append(
-                    f'<div style="display:inline-block;margin:3mm 3mm 0 0;text-align:center; page-break-inside:avoid;">'
-                    f'<a href="{escape(url)}"><img class="imgthumb" src="{escape(url)}" alt="{label}"/></a>'
-                    f'<div style="font-size:9pt;color:#c7d6f5;margin-top:2mm">{label}</div>'
-                    f'</div>'
-                )
-            else:
-                thumbs.append(
-                    f'<span class="pill" style="margin-right:4mm">{label} · {"N/A" if ax.no_aplica else "Pend."}</span>'
-                )
-        sections.append(f"""
-          <section class="section"><span class="dot"></span><div class="h2">Anexos fotográficos</div></section>
-          <div class="card">{''.join(thumbs)}</div>
-        """)
+    photos_with_url = []
+    for ax in anex:
+        url = _abs_file_url(request, getattr(ax, "archivo", None))
+        if url:
+            try:
+                label = escape(_fmt(ax.get_tipo_display()))
+            except Exception:
+                label = "Foto"
+            photos_with_url.append((url, label))
+
+    if photos_with_url:
+        items_html = "".join(
+            f'<div class="photo-item">'
+            f'<a href="{escape(u)}"><img src="{escape(u)}" alt="{lbl}"/></a>'
+            f'<div class="photo-label">{lbl}</div>'
+            f'</div>'
+            for u, lbl in photos_with_url
+        )
+        sections.append(
+            '<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Anexos fotograficos</div><div class="sec-line"></div></div>'
+            f'<div class="card"><div class="photo-grid">{items_html}</div></div>'
+        )
 
     # ===== Consentimientos =====
     cons_rows = []
@@ -424,51 +815,245 @@ def _build_html(est: Estudio, request) -> str:
     enviado_at    = getattr(est, "enviado_at", None)
     finalizado_at = getattr(est, "finalizado_at", None)
 
+    # ── foto perfil del candidato ──
+    foto_url = None
+    if candidato:
+        try:
+            if getattr(candidato, "foto", None):
+                foto_url = _abs_file_url(request, candidato.foto)
+            if not foto_url:
+                s = getattr(candidato, "soportes", None)
+                if s:
+                    sp = s.filter(tipo="FOTO_FRENTE").order_by("-id").first()
+                    if sp:
+                        foto_url = _abs_file_url(request, getattr(sp, "archivo", None))
+        except Exception:
+            foto_url = None
+
+    photo_block = (
+        f'<div class="profile-photo"><img src="{escape(foto_url)}" alt="Foto candidato"/></div>'
+        if foto_url else ""
+    )
+
+    pct_val  = int(round(float(getattr(est, "progreso", 0) or 0)))
+    decision = (getattr(est, "decision_final", "") or "").upper()
+    dec_chip = ""
+    if decision == "APTO":
+        dec_chip = '<span class="chip chip--apto">APTO</span>'
+    elif decision in ("NO_APTO", "NO APTO"):
+        dec_chip = '<span class="chip chip--noapto">NO APTO</span>'
+
+    # Score y nivel de riesgo
+    score_val   = getattr(est, "score_cuantitativo", None)
+    nivel_raw   = (getattr(est, "nivel_cualitativo", None) or "").upper()
+    score_int   = int(round(float(score_val))) if score_val is not None else None
+    nivel_css   = nivel_raw.lower() if nivel_raw in ("BAJO", "MEDIO", "ALTO", "CRITICO") else "bajo"
+    nivel_label = nivel_raw or "—"
+    riesgo_chip_cls = {
+        "BAJO":    "chip--bajo",
+        "MEDIO":   "chip--medio",
+        "ALTO":    "chip--alto",
+        "CRITICO": "chip--critico",
+    }.get(nivel_raw, "")
+    if nivel_raw:
+        dec_chip += f' <span class="chip {riesgo_chip_cls}">Riesgo {nivel_label}</span>'
+
+    # ── Mapa de calor ──
+    _hm_active = lambda seg: "hm-active" if nivel_raw == seg else ""
+    hm_bajo    = _hm_active("BAJO")
+    hm_medio   = _hm_active("MEDIO")
+    hm_alto    = _hm_active("ALTO")
+    hm_critico = _hm_active("CRITICO")
+
+    # Posición del marcador en la barra de gradiente (0-100%)
+    marker_pct = min(max(score_int if score_int is not None else 0, 0), 100)
+    score_display = f"{score_int}%" if score_int is not None else "—"
+
+    # ── Resumen ejecutivo dinámico ──
+    _exec_texts = {
+        "BAJO": (
+            f"El candidato {escape(cand_name)} presenta un perfil de <strong>bajo riesgo</strong>. "
+            f"Los modulos verificados no arrojaron irregularidades significativas.",
+            [
+                "Historial academico y laboral consistente con lo declarado.",
+                "Sin hallazgos criticos en centrales de riesgo ni antecedentes.",
+                "Se recomienda proceder con el proceso de vinculacion.",
+            ]
+        ),
+        "MEDIO": (
+            f"El candidato {escape(cand_name)} presenta un riesgo <strong>moderado</strong>. "
+            f"Se identificaron elementos que ameritan revision antes de tomar una decision.",
+            [
+                f"Se encontraron {hallazgos} hallazgo(s) que requieren atencion.",
+                "Revisar los modulos marcados con observaciones antes de decidir.",
+                "Se recomienda solicitar documentacion adicional si es necesario.",
+            ]
+        ),
+        "ALTO": (
+            f"El candidato {escape(cand_name)} presenta un nivel de riesgo <strong>alto</strong>. "
+            f"Se identificaron irregularidades relevantes que deben analizarse con detenimiento.",
+            [
+                f"Se registraron {hallazgos} hallazgo(s) con impacto significativo.",
+                "Las inconsistencias encontradas representan un riesgo para la organizacion.",
+                "Se recomienda revision por un analista senior antes de cualquier decision.",
+            ]
+        ),
+        "CRITICO": (
+            f"El candidato {escape(cand_name)} presenta un nivel de riesgo <strong>critico</strong>. "
+            f"Los hallazgos encontrados son de alta gravedad.",
+            [
+                f"Se detectaron {hallazgos} hallazgo(s) criticos en el estudio.",
+                "Las irregularidades identificadas representan un riesgo inaceptable.",
+                "Se recomienda NO proceder con la vinculacion del candidato.",
+            ]
+        ),
+    }
+    exec_lead, exec_bullets_list = _exec_texts.get(nivel_raw, (
+        f"El estudio del candidato {escape(cand_name)} se encuentra en proceso de evaluacion.",
+        ["Pendiente de completar todos los modulos del estudio."]
+    ))
+    exec_bullets_html = "".join(f"<li>{b}</li>" for b in exec_bullets_list)
+
     return f"""<!doctype html>
 <html lang="es">
-<head><meta charset="utf-8" /><style>{PRINT_CSS}</style></head>
+<head><meta charset="utf-8"/><style>{PRINT_CSS}</style></head>
 <body>
-  <header class="header">
-    <div class="h1">ESTUDIO DE SEGURIDAD DE {escape(cand_name)}</div>
-    <div class="sub">{escape(empresa_name)} · Cédula {escape(cand_id)}</div>
-    <div class="chips">
-      <span class="chip chip--state">ESTADO: {escape(_fmt(getattr(est, 'estado', None)))}</span>
-      {f'<span class="chip {decision_cls}">DECISIÓN: {escape(_fmt(getattr(est,"decision_final", None)))}</span>' if getattr(est,'decision_final', None) else ''}
-      <span class="chip chip--progress">PROGRESO: {_pct(getattr(est, 'progreso', 0))}</span>
+
+<!-- ══ HEADER ══ -->
+<div class="page-header">
+  <div class="header-top">
+    <div class="brand">eConfia</div>
+    <div class="report-meta">
+      Estudio #{ est.id }<br>
+      Emitido: { datetime.now().strftime("%d/%m/%Y %H:%M") }<br>
+      Empresa: { escape(empresa_name) }
     </div>
-  </header>
+  </div>
+  <div class="header-title">Estudio de Seguridad</div>
+  <div class="header-sub">{ escape(cand_name) } &nbsp;·&nbsp; C.C. { escape(cand_id) }</div>
+  <div class="chips">
+    <span class="chip">{ escape(_fmt(getattr(est, "estado", None))) }</span>
+    { dec_chip }
+    <span class="chip chip--prog">Progreso { _pct(pct_val) }</span>
+  </div>
+</div>
 
-  <section class="section"><span class="dot"></span><div class="h2">Datos del candidato</div></section>
-  <div class="card">{cand_table}</div>
+<div class="body-wrap">
 
-  <section class="section"><span class="dot"></span><div class="h2">Resumen</div></section>
-  <div class="card nobreak">
-    <div>Items: <b>{total}</b> · Validados: <b>{validados}</b> · Hallazgos: <b>{hallazgos}</b></div>
-    <div>Autorización: <b>{'Firmada' if getattr(est,'autorizacion_firmada',False) else 'Pendiente'}</b></div>
-    <div>Enviado: <b>{escape(_fdate(enviado_at))}</b> · Cerrado: <b>{escape(_fdate(finalizado_at))}</b></div>
-    {f'<div class="note">{escape(_fmt(getattr(est,"observacion_analista", None)))}</div>' if getattr(est,'observacion_analista', None) else ''}
+<!-- ══ PERFIL + DATOS ══ -->
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Datos del candidato</div><div class="sec-line"></div></div>
+<div class="card">
+  <div class="profile-block">
+    { photo_block }
+    <div class="profile-data">{ cand_table }</div>
+  </div>
+</div>
+
+<!-- ══ RESUMEN ══ -->
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Resumen del estudio</div><div class="sec-line"></div></div>
+<div class="card nobreak">
+  <div class="summary-grid">
+    <div class="summary-cell"><div class="num">{total}</div><div class="lbl">Items totales</div></div>
+    <div class="summary-cell"><div class="num" style="color:#34d399">{validados}</div><div class="lbl">Validados</div></div>
+    <div class="summary-cell"><div class="num" style="color:#f87171">{hallazgos}</div><div class="lbl">Hallazgos</div></div>
+    <div class="summary-cell"><div class="num">{pct_val}%</div><div class="lbl">Progreso</div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:{pct_val}%"></div></div>
+    </div>
+  </div>
+  <table style="width:100%;margin-top:4mm;font-size:9pt;border-collapse:collapse;">
+    <tr>
+      <td style="padding:2px 6px;color:#94a3b8;font-size:8.5pt;font-weight:600;text-transform:uppercase;">Autorizacion</td>
+      <td style="padding:2px 6px;">{'<span class="badge badge--ok">Firmada</span>' if getattr(est,'autorizacion_firmada',False) else '<span class="badge badge--warn">Pendiente</span>'}</td>
+      <td style="padding:2px 6px;color:#94a3b8;font-size:8.5pt;font-weight:600;text-transform:uppercase;">Enviado</td>
+      <td style="padding:2px 6px;">{ escape(_fdate(enviado_at)) }</td>
+      <td style="padding:2px 6px;color:#94a3b8;font-size:8.5pt;font-weight:600;text-transform:uppercase;">Cerrado</td>
+      <td style="padding:2px 6px;">{ escape(_fdate(finalizado_at)) }</td>
+    </tr>
+  </table>
+  { f'<div class="note">{escape(_fmt(getattr(est,"observacion_analista", None)))}</div>' if getattr(est,'observacion_analista', None) else '' }
+</div>
+
+<!-- ══ IRREGULARIDADES ══ -->
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Irregularidades reportadas</div><div class="sec-line"></div></div>
+<div class="card">
+  <table class="dtable">
+    <colgroup><col style="width:26%"><col style="width:16%"><col style="width:58%"></colgroup>
+    <thead><tr><th>Modulo</th><th>Estado</th><th>Detalle</th></tr></thead>
+    <tbody>{ irr_body or '<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:6px;">Sin irregularidades registradas.</td></tr>' }</tbody>
+  </table>
+</div>
+
+<!-- ══ SECCIONES DINÁMICAS ══ -->
+{''.join(sections)}
+
+<!-- ══ CONSENTIMIENTOS ══ -->
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Consentimientos y autorizacion</div><div class="sec-line"></div></div>
+<div class="card">
+  <table class="dtable">
+    <colgroup><col style="width:50%"><col style="width:20%"><col style="width:30%"></colgroup>
+    <thead><tr><th>Tipo</th><th>Estado</th><th>Fecha firma</th></tr></thead>
+    <tbody>{''.join(cons_rows)}</tbody>
+  </table>
+</div>
+
+<!-- ══ ANALISIS DE RIESGO ══ -->
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Analisis de riesgo y resumen ejecutivo</div><div class="sec-line"></div></div>
+<div class="card nobreak">
+  <div class="exec-block">
+
+    <!-- Score box -->
+    <div class="exec-score-box {nivel_css}">
+      <div class="elbl">Score</div>
+      <div class="enum">{ score_display }</div>
+      <div class="enivel">{ nivel_label }</div>
+    </div>
+
+    <!-- Texto ejecutivo -->
+    <div class="exec-text">
+      <p class="lead">{ exec_lead }</p>
+      <ul class="exec-bullets">{ exec_bullets_html }</ul>
+    </div>
+
   </div>
 
-  <section class="section"><span class="dot"></span><div class="h2">Irregularidades reportadas</div></section>
-  <div class="card">
-    <table class="table">
-      <colgroup><col style="width:28%"><col style="width:18%"><col style="width:54%"></colgroup>
-      <thead><tr><th>Módulo</th><th>Estado</th><th>Detalle</th></tr></thead>
-      <tbody>{irr_body or '<tr><td colspan="3">Sin irregularidades.</td></tr>'}</tbody>
-    </table>
+  <!-- Mapa de calor -->
+  <div class="heatmap-wrap">
+    <div class="heatmap-bar">
+      <div class="hm-seg hm-bajo { hm_bajo }">
+        <span class="hm-arrow">&#9660;</span>BAJO
+      </div>
+      <div class="hm-seg hm-medio { hm_medio }">
+        <span class="hm-arrow">&#9660;</span>MEDIO
+      </div>
+      <div class="hm-seg hm-alto { hm_alto }">
+        <span class="hm-arrow">&#9660;</span>ALTO
+      </div>
+      <div class="hm-seg hm-critico { hm_critico }">
+        <span class="hm-arrow">&#9660;</span>CRITICO
+      </div>
+    </div>
+    <div class="heatmap-labels">
+      <span>0 &ndash; 24%</span>
+      <span>25 &ndash; 49%</span>
+      <span>50 &ndash; 74%</span>
+      <span>75 &ndash; 100%</span>
+    </div>
+    <!-- Barra de gradiente con marcador de posicion exacta -->
+    <div class="score-gauge" style="margin-top:3mm;">
+      <div class="score-marker" style="left:{ marker_pct }%;"></div>
+    </div>
+    <div style="text-align:center;font-size:8pt;color:#94a3b8;margin-top:2mm;">
+      Posicion del score ({ score_display }) en la escala de riesgo
+    </div>
   </div>
+</div>
 
-  {''.join(sections)}
+<div class="report-footer">
+  <span>eConfia &mdash; Seguridad &amp; Verificacion</span>
+  <span>Estudio #{est.id} &nbsp;&bull;&nbsp; { escape(empresa_name) } &nbsp;&bull;&nbsp; { datetime.now().strftime("%d/%m/%Y") }</span>
+</div>
 
-  <section class="section"><span class="dot"></span><div class="h2">Consentimientos & autorización</div></section>
-  <div class="card">
-    <table class="table">
-      <colgroup><col style="width:50%"><col style="width:20%"><col style="width:30%"></colgroup>
-      <thead><tr><th>Tipo</th><th>Estado</th><th>Fecha firma</th></tr></thead>
-      <tbody>{''.join(cons_rows)}</tbody>
-    </table>
-    <div class="small">Emitido por eConfia · {datetime.now().strftime("%d/%m/%Y %H:%M")}</div>
-  </div>
+</div>
 </body>
 </html>
 """

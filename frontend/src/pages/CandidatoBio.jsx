@@ -496,11 +496,12 @@ function CandidatoBioInner() {
             type="button"
             onClick={handleReset}
             disabled={!dirty || saving || !editable}
-            className={`rounded-xl border px-4 py-2 text-sm ${
-              !dirty || saving || !editable
-                ? "cursor-not-allowed border-white/10 bg-white/5 text-slate-400"
-                : "border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
-            }`}
+            className={`rounded-xl border-2 px-4 py-2 text-sm font-medium transition
+              bg-slate-700 text-white/80 border-slate-600
+              ${!dirty || saving || !editable
+                ? "cursor-not-allowed opacity-50"
+                : "hover:border-violet-500 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
+            `}
           >
             Descartar cambios
           </button>

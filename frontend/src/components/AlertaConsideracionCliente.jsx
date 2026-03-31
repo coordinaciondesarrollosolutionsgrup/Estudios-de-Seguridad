@@ -1,7 +1,16 @@
 import { useEstudioEditable } from "../context/EstudioEditableContext";
+import { useEffect, useState } from "react";
 
-export default function AlertaConsideracionCliente() {
+export default function AlertaConsideracionCliente({ politicasNoRelevantes }) {
   const { aConsideracionCliente, loading } = useEstudioEditable();
+  const [noRelevantes, setNoRelevantes] = useState([]);
+
+  useEffect(() => {
+    if (Array.isArray(politicasNoRelevantes)) {
+      setNoRelevantes(politicasNoRelevantes);
+    }
+  }, [politicasNoRelevantes]);
+
   if (loading || !aConsideracionCliente) return null;
   return (
     <div style={{
@@ -25,6 +34,13 @@ export default function AlertaConsideracionCliente() {
           <b style={{ color: '#f59e42' }}>no relevantes</b> fueron configurados por el cliente y el resultado
           debe ser interpretado bajo esa política.
         </p>
+        {noRelevantes && noRelevantes.length > 0 && (
+          <ul style={{ margin: '8px 0 0 0', padding: 0, color: '#f59e42', fontSize: 12, listStyle: 'inside disc' }}>
+            {noRelevantes.map((item, idx) => (
+              <li key={idx}>{item}</li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

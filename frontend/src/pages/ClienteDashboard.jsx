@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import { saveConfigFormulario, getHistorialConfig } from "../api/studies";
 import ProgressBarLive from "../components/ProgressBarLive";
+import AlertaConsideracionCliente from "../components/AlertaConsideracionCliente";
 import useStudyProgress from "../hooks/useStudyProgress";
 import ThreeBackground from "../components/ThreeBackground";
 import { useToast } from "../components/Toast";
@@ -611,24 +612,30 @@ export default function ClienteDashboard() {
           <div className="flex items-center gap-2">
             <PlusCircle className="h-5 w-5 text-white/80" />
             <h2 className="text-lg font-semibold">Nueva solicitud</h2>
-            <button
-              type="button"
-              onClick={() => {
-                syncConfigFormulario();
-                setShowConfigModal(true);
-              }}
-              className="ml-auto rounded-xl px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 transition"
-            >
-              Arma tu estudio
-            </button>
-            <button
-              type="button"
-              onClick={openHistorialModal}
-              className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-sky-600 hover:bg-sky-500 transition"
-              style={{marginLeft:8}}
-            >
-              Historial de configuraciones
-            </button>
+            <div className="ml-auto flex gap-2">
+              <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-emerald-500/80 to-transparent">
+                <button
+                  type="button"
+                  onClick={() => {
+                    syncConfigFormulario();
+                    setShowConfigModal(true);
+                  }}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-emerald-500 hover:shadow-[0_0_10px_2px_rgba(16,185,129,0.4)] transition"
+                >
+                  Arma tu estudio
+                </button>
+              </div>
+              <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-blue-500/80 to-transparent">
+                <button
+                  type="button"
+                  onClick={openHistorialModal}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 hover:border-blue-500 hover:shadow-[0_0_10px_2px_rgba(59,130,246,0.4)] transition"
+                  style={{marginLeft:0}}
+                >
+                  Historial de configuraciones
+                </button>
+              </div>
+            </div>
           </div>
        {/* Modal de historial de configuraciones */}
       {showHistorialModal && (
@@ -722,32 +729,37 @@ export default function ClienteDashboard() {
           </div>
 
           <div className="pt-1 flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={disabledCreate || creando}
-              className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition flex items-center gap-2 ${
-                disabledCreate || creando ? "cursor-not-allowed bg-slate-600" : "bg-blue-600 hover:bg-blue-500"
-              }`}
-            >
-              {creando && (
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                </svg>
-              )}
-              {creando ? "Creando…" : "Crear solicitud"}
-            </button>
-            {/* Botón para abrir el modal de políticas */}
-            <button
-              type="button"
-              onClick={openPoliticasModal}
-              className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition bg-amber-600 hover:bg-amber-500 ${politicasBloqueadas ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={politicasBloqueadas}
-              title={politicasBloqueadas ? 'La configuración de políticas está bloqueada. Contacta al administrador para editar.' : ''}
-              style={{marginLeft:8}}
-            >
-              Configurar políticas
-            </button>
+            <div className="flex gap-2">
+              <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-blue-500/80 to-transparent">
+                <button
+                  type="submit"
+                  disabled={disabledCreate || creando}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 transition flex items-center gap-2 ${
+                    disabledCreate || creando ? "cursor-not-allowed opacity-60" : "hover:border-blue-500 hover:shadow-[0_0_10px_2px_rgba(59,130,246,0.4)]"
+                  }`}
+                >
+                  {creando && (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                    </svg>
+                  )}
+                  {creando ? "Creando…" : "Crear solicitud"}
+                </button>
+              </div>
+              <div className="p-[1.5px] rounded-lg bg-gradient-to-r from-transparent via-amber-500/80 to-transparent">
+                <button
+                  type="button"
+                  onClick={openPoliticasModal}
+                  className={`rounded-xl px-4 py-2 text-sm font-medium text-white bg-slate-700 border-2 border-slate-600 transition ${politicasBloqueadas ? 'opacity-50 cursor-not-allowed' : 'hover:border-amber-500 hover:shadow-[0_0_10px_2px_rgba(245,158,11,0.4)]'}`}
+                  disabled={politicasBloqueadas}
+                  title={politicasBloqueadas ? 'La configuración de políticas está bloqueada. Contacta al administrador para editar.' : ''}
+                  style={{marginLeft:0}}
+                >
+                  Configurar políticas
+                </button>
+              </div>
+            </div>
             {politicasBloqueadas && (
               <div className="ml-2 text-xs text-red-300">La configuración de políticas está bloqueada. Contacta al administrador para editar.</div>
             )}
@@ -820,7 +832,18 @@ export default function ClienteDashboard() {
               </p>
               <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>
                 {itemTipos.map((it) => (
-                  <button key={it.key} style={{width:'48%',textAlign:'left',padding:'6px 8px',borderRadius:6,background:selectedItem===it.key?'#6366f1':'#222',color:selectedItem===it.key?'#fff':'#d1d5db',fontWeight:selectedItem===it.key?'bold':'normal',marginBottom:4,cursor:'pointer'}} onClick={() => handleItemClick(it.key)}>
+                  <button
+                    key={it.key}
+                    onClick={() => handleItemClick(it.key)}
+                    className={`w-[48%] text-left px-3 py-1.5 rounded-full text-sm font-semibold transition
+                      bg-slate-700
+                      border-2
+                      ${selectedItem === it.key
+                        ? "border-violet-500 shadow-[0_0_10px_2px_rgba(139,92,246,0.4)] bg-slate-800 text-violet-200"
+                        : "border-slate-600 text-white/90 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
+                    `}
+                    style={{marginBottom: 8, fontWeight: selectedItem === it.key ? 'bold' : 'normal'}}
+                  >
                     {it.label}
                   </button>
                 ))}
@@ -921,6 +944,30 @@ export default function ClienteDashboard() {
                     <span style={{color:politicaEdit['drogas__consumo_pasado']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['drogas__consumo_pasado']?.no_relevante?'bold':'normal'}}>Consumo pasado</span>
                   </label>
                 </div>
+                {/* Campo Otros para cada grupo */}
+                <div style={{marginBottom:16,opacity:politicasBloqueadas?0.5:1}}>
+                  <div style={{fontWeight:'bold',marginBottom:8}}>Otros</div>
+                  <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,cursor:politicasBloqueadas?'not-allowed':'pointer'}}>
+                    <input type="checkbox" disabled={politicasBloqueadas} checked={!!politicaEdit['otros__delitos']?.no_relevante} onChange={() => handlePoliticaToggle('otros__delitos', 'no_relevante')} style={{accentColor:'#f59e42'}} />
+                    <span style={{color:politicaEdit['otros__delitos']?.no_relevante?'#f59e42':'#fff',fontWeight:politicaEdit['otros__delitos']?.no_relevante?'bold':'normal'}}>Otros (especifique):</span>
+                    <input
+                      type="text"
+                      disabled={politicasBloqueadas || !politicaEdit['otros__delitos']?.no_relevante}
+                      value={politicaEdit['otros__delitos']?.texto || ''}
+                      onChange={e => setPoliticaEdit(edit => ({
+                        ...edit,
+                        ['otros__delitos']: {
+                          ...(edit['otros__delitos'] || {}),
+                          texto: e.target.value,
+                          no_relevante: true,
+                          _changed: true
+                        }
+                      }))}
+                      placeholder="Escriba aquí..."
+                      style={{flex:1,minWidth:120,padding:'2px 6px',borderRadius:4,border:'1px solid #f59e42',background:'#18181b',color:'#fff'}}
+                    />
+                  </label>
+                </div>
                 {!politicasBloqueadas && (
                   <button
                     type="submit"
@@ -962,16 +1009,28 @@ export default function ClienteDashboard() {
                     onClick={() => openResumen(es.id)}
                     className="w-full text-left transition hover:bg-white/5"
                   >
-                    <div className="flex items-center justify-between p-3">
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-white/70" />
-                        <span className="font-medium">Estudio #{es.id}</span>
+                    <div className="flex flex-col gap-1 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-white/70" />
+                          <span className="font-medium">Estudio #{es.id}</span>
+                        </div>
+                        <div className="text-xs text-white/70 flex items-center gap-3">
+                          <span>{es.nivel_cualitativo || "—"}</span>
+                          <span>
+                            <LivePct studyId={es.id} initial={es.progreso || 0} />
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-xs text-white/70 flex items-center gap-3">
-                        <span>{es.nivel_cualitativo || "—"}</span>
-                        <span>
-                          <LivePct studyId={es.id} initial={es.progreso || 0} />
-                        </span>
+                      <div className="text-xs text-white/80 pl-6">
+                        {es.candidato ? (
+                          <>
+                            <span className="mr-2">{es.candidato.nombre} {es.candidato.apellido}</span>
+                            <span className="text-white/60">Cédula: {es.candidato.cedula}</span>
+                          </>
+                        ) : (
+                          <span className="text-white/50">Sin datos de candidato</span>
+                        )}
                       </div>
                     </div>
                     <div className="px-3 pb-3">
@@ -1017,6 +1076,25 @@ export default function ClienteDashboard() {
               <div className={`${cardCls} p-4`}>Selecciona un estudio</div>
             ) : (
               <div className={`${cardCls} p-4 space-y-3`}>
+                {/* Alerta de políticas no relevantes */}
+                <AlertaConsideracionCliente
+                  politicasNoRelevantes={(() => {
+                    if (Array.isArray(sel.politicas_no_relevantes)) {
+                      return sel.politicas_no_relevantes.map(p =>
+                        typeof p === 'string' ? p : (p.texto || p.nombre || p.label || JSON.stringify(p))
+                      );
+                    }
+                    if (Array.isArray(sel.politicas)) {
+                      return sel.politicas.filter(p => p.no_relevante).map(p => {
+                        if (p.criterio === 'otros' && p.texto) {
+                          return `Otros: ${p.texto}`;
+                        }
+                        return p.label || p.opcion || p.nombre || JSON.stringify(p);
+                      });
+                    }
+                    return [];
+                  })()}
+                />
                 <div className="flex items-center justify-between">
                   <div className="font-medium">Estudio #{sel.estudio_id}</div>
                   <div className="text-sm text-white/80">
@@ -1068,7 +1146,7 @@ export default function ClienteDashboard() {
                   </button>
 
                   <span className="text-sm text-white/80">
-                    Autorización:{" "}
+                    Autorización: {" "}
                     <b className={sel.autorizacion?.firmada ? "text-emerald-300" : "text-amber-300"}>
                       {sel.autorizacion?.firmada ? "Firmada" : "Pendiente"}
                     </b>
