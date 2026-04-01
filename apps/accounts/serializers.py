@@ -5,7 +5,8 @@ from .models import User
 class MeSerializer(serializers.ModelSerializer):
     empresa_id = serializers.IntegerField(source="empresa.id", read_only=True, allow_null=True)
     empresa_nombre = serializers.CharField(source="empresa.nombre", read_only=True, allow_null=True)
+    empresa_logo_url = serializers.CharField(source="empresa.logo_url", read_only=True, allow_null=True)
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "rol", "empresa_id", "empresa_nombre"]
+        fields = ["id", "username", "email", "rol", "empresa_id", "empresa_nombre", "empresa_logo_url"]

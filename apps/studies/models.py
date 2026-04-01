@@ -158,6 +158,42 @@ class Estudio(models.Model):
         self.save(update_fields=["estado", "observacion_analista", "decision_final", "finalizado_at", "updated_at"])
 
 
+class VisitaVirtualEstado(models.TextChoices):
+    ACTIVA = "ACTIVA", "Activa"
+    FINALIZADA = "FINALIZADA", "Finalizada"
+
+
+class EstudioVisitaVirtual(models.Model):
+    estudio = models.OneToOneField("studies.Estudio", on_delete=models.CASCADE, related_name="visita_virtual")
+    meeting_url = models.URLField(max_length=500)
+    estado = models.CharField(max_length=20, choices=VisitaVirtualEstado.choices, default=VisitaVirtualEstado.ACTIVA)
+
+    consentida_por_candidato = models.BooleanField(default=False)
+    consentida_at = models.DateTimeField(null=True, blank=True)
+
+    ultima_latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    ultima_longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    ultima_precision_m = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    ultima_actualizacion_at = models.DateTimeField(null=True, blank=True)
+
+    activa_desde = models.DateTimeField(auto_now_add=True)
+    finalizada_at = models.DateTimeField(null=True, blank=True)
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="visitas_virtuales_creadas",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-activa_desde"]
+
+    def __str__(self):
+        return f"Visita virtual estudio #{self.estudio_id} ({self.estado})"
+
+
 class ItemTipo(models.TextChoices):
     LISTAS_RESTRICTIVAS = "LISTAS_RESTRICTIVAS"
     TITULOS_ACADEMICOS = "TITULOS_ACADEMICOS"

@@ -6,6 +6,7 @@ import ProgressBar from "../components/ProgressBar";
 import ConsentWizard from "../components/ConsentWizard";
 import ModulesNav from "../components/ModulesNav";
 import ThreeBackground from "../components/ThreeBackground";
+import AppNavbar from "../components/AppNavbar";
 // ⬇️ nuevo: modal de evaluación
 import EvaluacionTratoModal from "../components/EvaluacionTratoModal";
 
@@ -18,6 +19,11 @@ export default function CandidatoPortal() {
   const [showConsent, setShowConsent] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
   const [showEval, setShowEval] = useState(false); // ⬅️ nuevo
+  const [visitaVirtual, setVisitaVirtual] = useState(null);
+  const [geoSharing, setGeoSharing] = useState(false);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const geoWatchRef = useRef(null);
+  const lastGeoPushRef = useRef(0);
 
   // “pin” local para que el progreso no baje cuando el estudio está congelado
   const progressPinRef = useRef(null);
@@ -46,6 +52,75 @@ export default function CandidatoPortal() {
     return progressPinRef.current;
   }, [estudio?.progreso, freezeProgress]);
 
+  const stopGeoShare = () => {
+    if (geoWatchRef.current != null && navigator?.geolocation?.clearWatch) {
+      navigator.geolocation.clearWatch(geoWatchRef.current);
+    }
+    geoWatchRef.current = null;
+    setGeoSharing(false);
+  };
+
+  const loadVisitaVirtual = async (estudioId) => {
+    try {
+      const { data } = await api.get(`/api/estudios/${estudioId}/visita-virtual/`);
+      setVisitaVirtual(data || null);
+      return data || null;
+    } catch {
+      setVisitaVirtual(null);
+      return null;
+    }
+  };
+
+  const startGeoShare = async () => {
+    if (!estudio?.id) return;
+    if (!navigator?.geolocation) {
+      alert("Tu navegador no soporta geolocalización.");
+      return;
+    }
+    if ((visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA") {
+      alert("No hay una visita virtual activa.");
+      return;
+    }
+
+    setGeoBusy(true);
+    try {
+      if (!visitaVirtual?.consentida_por_candidato) {
+        const ok = confirm(
+          "¿Aceptas compartir tu ubicación durante esta visita virtual para verificación de seguridad?"
+        );
+        if (!ok) return;
+        await api.post(`/api/estudios/${estudio.id}/visita-virtual/consentir/`);
+      }
+
+      lastGeoPushRef.current = 0;
+      geoWatchRef.current = navigator.geolocation.watchPosition(
+        async (position) => {
+          const now = Date.now();
+          if (now - lastGeoPushRef.current < 10000) return;
+          lastGeoPushRef.current = now;
+          try {
+            await api.post(`/api/estudios/${estudio.id}/visita-virtual/ubicacion/`, {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            });
+            await loadVisitaVirtual(estudio.id);
+          } catch {
+            // silencioso para no interrumpir el watch por fallos intermitentes
+          }
+        },
+        () => {
+          alert("No se pudo obtener tu ubicación. Verifica permisos del navegador.");
+          stopGeoShare();
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      );
+      setGeoSharing(true);
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setMsg("");
@@ -54,6 +129,8 @@ export default function CandidatoPortal() {
       const first = Array.isArray(data) && data.length ? data[0] : null;
       if (!first) {
         setEstudio(null);
+        setVisitaVirtual(null);
+        stopGeoShare();
         setShowConsent(false);
         setShowEval(false);
         setShowClosed(false);
@@ -62,6 +139,7 @@ export default function CandidatoPortal() {
       }
       const { data: full } = await api.get(`/api/estudios/${first.id}/`);
       setEstudio(full);
+      await loadVisitaVirtual(full.id);
 
       // fijar pin si corresponde
       const s = (full.estado || "").toUpperCase();
@@ -105,6 +183,8 @@ export default function CandidatoPortal() {
       console.error(e);
       setMsg("No se pudo cargar tu estudio.");
       setEstudio(null);
+      setVisitaVirtual(null);
+      stopGeoShare();
       setShowConsent(false);
       setShowEval(false);
       setShowClosed(false);
@@ -116,7 +196,10 @@ export default function CandidatoPortal() {
 
   useEffect(() => {
     load();
-    return () => clearTimeout(closeTimerRef.current);
+    return () => {
+      clearTimeout(closeTimerRef.current);
+      stopGeoShare();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -139,6 +222,22 @@ export default function CandidatoPortal() {
     window.addEventListener("estudio:progress", onProgress);
     return () => window.removeEventListener("estudio:progress", onProgress);
   }, [freezeProgress]);
+
+  useEffect(() => {
+    if ((visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA") {
+      stopGeoShare();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visitaVirtual?.estado]);
+
+  useEffect(() => {
+    if (!estudio?.id || (visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA") return;
+    const timer = setInterval(() => {
+      loadVisitaVirtual(estudio.id);
+    }, 12000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estudio?.id, visitaVirtual?.estado]);
 
   const locked = useMemo(
     () => (estudio ? !estudio.editable_por_candidato : false),
@@ -174,10 +273,14 @@ export default function CandidatoPortal() {
       <div className="mx-auto max-w-5xl p-6">
         <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl">
           {/* Header */}
-          <div className="flex flex-col gap-4 border-b border-white/10 p-6 md:flex-row md:items-center md:justify-between">
+          <div className="border-b border-white/10 p-4">
+            <AppNavbar
+              title="Portal del candidato"
+              subtitle="Completa tu información y consulta el estado de tu estudio."
+            />
+          </div>
+          <div className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight text-white">Portal del candidato</h1>
-              <p className="mt-1 text-sm text-white/60">Completa tu información y consulta el estado de tu estudio.</p>
             </div>
 
             {/* Estado del estudio */}
@@ -241,6 +344,50 @@ export default function CandidatoPortal() {
               )}
             </div>
           </div>
+
+          {!loading && estudio && (visitaVirtual?.exists || false) && (
+            <div className="mx-4">
+              <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-emerald-100">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-sm">Visita virtual solicitada por el analista</div>
+                    <div className="text-xs text-emerald-100/80">
+                      Estado: {visitaVirtual?.estado || "NO_INICIADA"}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {visitaVirtual?.meeting_url && (
+                      <a
+                        href={visitaVirtual.meeting_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold border border-white/30 hover:bg-white/10"
+                      >
+                        Abrir reunión
+                      </a>
+                    )}
+                    {(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" && !geoSharing && (
+                      <button
+                        onClick={startGeoShare}
+                        disabled={geoBusy}
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-700/80 hover:bg-emerald-700 disabled:opacity-60"
+                      >
+                        {geoBusy ? "Activando..." : "Compartir ubicación"}
+                      </button>
+                    )}
+                    {geoSharing && (
+                      <button
+                        onClick={stopGeoShare}
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold border border-white/30 hover:bg-white/10"
+                      >
+                        Detener ubicación
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Mensajes */}
           {msg && (

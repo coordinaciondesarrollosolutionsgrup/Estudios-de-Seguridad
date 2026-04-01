@@ -10,6 +10,14 @@ Ha recibido una invitación para participar en un estudio.
   <li><b>Enlace de acceso:</b> <a href="{{ link }}">Ir a la plataforma</a></li>
 </ul>
 
+{% if access_deadline %}
+<p>
+  <b>Importante:</b> Este acceso estará activo por {{ access_hours|default:24 }} horas desde su creación.<br/>
+  Fecha límite: <b>{{ access_deadline|date:"d/m/Y H:i" }}</b>.<br/>
+  Después de ese tiempo, el usuario quedará inactivo.
+</p>
+{% endif %}
+
 Por favor, revise la información en el sistema y siga las instrucciones proporcionadas.
 
 Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

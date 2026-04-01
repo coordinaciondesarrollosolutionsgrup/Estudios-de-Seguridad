@@ -1,10 +1,20 @@
-Estimado cliente,
+Estimado candidato,
 
-El candidato {{ nombre }} (Cédula: {{ cedula }}) ha sido invitado a completar su estudio.
+Ha recibido una invitación para participar en un estudio.
 
-Número de solicitud: {{ solicitud_id }}
+Nombre: {{ nombre }} {{ apellido }}
+Cédula: {{ cedula }}
+Usuario: {{ usuario }}
+{% if temp_password %}Contraseña temporal: {{ temp_password }}{% endif %}
+Enlace de acceso: {{ link }}
 
-Estado actual: Invitación enviada al candidato.
+{% if access_deadline %}
+Importante:
+- Este acceso estará activo por {{ access_hours|default:24 }} horas desde su creación.
+- Fecha límite: {{ access_deadline|date:"d/m/Y H:i" }}.
+- Después de ese tiempo, su usuario quedará inactivo.
+{% endif %}
 
-Gracias por confiar en nuestro servicio.
-Equipo de Coordinación de Estudios.
+Por favor, revise la información en el sistema y siga las instrucciones proporcionadas.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

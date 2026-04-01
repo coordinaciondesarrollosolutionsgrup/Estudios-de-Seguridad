@@ -92,6 +92,17 @@ html, body {
   margin-bottom: 5mm;
 }
 .brand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 12mm;
+}
+.brand img {
+  max-height: 10mm;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+.brand-text {
   font-size: 13pt;
   font-weight: 800;
   letter-spacing: 3px;
@@ -113,6 +124,12 @@ html, body {
   margin: 0 0 1mm;
   line-height: 1.2;
   color: #f1f5f9;
+}
+.header-title-company {
+  font-size: 11pt;
+  font-weight: 600;
+  color: #93c5fd;
+  margin-left: 2mm;
 }
 .header-sub {
   font-size: 10pt;
@@ -412,6 +429,89 @@ html, body {
   box-shadow: 0 0 4px rgba(0,0,0,.5);
 }
 
+.matrix-wrap { border-top: 1px solid var(--border); padding-top: 3mm; }
+.matrix-legend {
+  text-align: center;
+  font-size: 8pt;
+  color: var(--muted);
+  margin-bottom: 2mm;
+}
+.risk-matrix {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2mm;
+}
+.matrix-cell {
+  min-height: 12mm;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  font-size: 8pt;
+  font-weight: 700;
+  opacity: .72;
+}
+.matrix-cell.m-low-low { background: rgba(52,211,153,.16); color: #34d399; }
+.matrix-cell.m-low-high { background: rgba(251,191,36,.16); color: #fbbf24; }
+.matrix-cell.m-high-low { background: rgba(251,146,60,.17); color: #fb923c; }
+.matrix-cell.m-high-high { background: rgba(248,113,113,.18); color: #f87171; }
+.matrix-cell.matrix-active {
+  opacity: 1;
+  border-color: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+}
+.matrix-axes {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2mm;
+  font-size: 7.5pt;
+  color: var(--muted);
+}
+
+.traffic-wrap { border-top: 1px solid var(--border); padding-top: 3mm; }
+.traffic-header {
+  text-align: center;
+  font-size: 8pt;
+  color: var(--muted);
+  margin-bottom: 2mm;
+}
+.traffic-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2mm;
+}
+.traffic-item {
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  min-height: 13mm;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  opacity: .68;
+}
+.traffic-item span {
+  font-size: 7pt;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+.traffic-item b {
+  font-size: 8pt;
+  font-weight: 700;
+}
+.traffic-item:nth-child(1) { background: rgba(52,211,153,.14); color: #34d399; }
+.traffic-item:nth-child(2) { background: rgba(251,191,36,.12); color: #fbbf24; }
+.traffic-item:nth-child(3) { background: rgba(251,146,60,.13); color: #fb923c; }
+.traffic-item:nth-child(4) { background: rgba(248,113,113,.15); color: #f87171; }
+.traffic-item.active {
+  opacity: 1;
+  border-color: #e2e8f0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+}
+
 /* ── EXEC SUMMARY ────────────────────────── */
 .exec-block {
   display: flex;
@@ -569,18 +669,30 @@ def _filename(filefield):
     except Exception:
         return None
 
+def _normalize_report_style(style_raw):
+    s = (style_raw or "").strip().lower()
+    if s in ("gerencial", "investigativo", "cumplimiento"):
+        return s
+    return "gerencial"
+
 # >>> Mostrar OBSERVADO si estado=VALIDADO y hay comentario
 def _estado_obs_display(estado, comentario):
     e = (estado or "").upper()
     return "OBSERVADO" if (comentario and e == "VALIDADO") else (estado or "—")
 
 # ----- HTML builder -----
-def _build_html(est: Estudio, request) -> str:
+def _build_html(est: Estudio, request, report_style="gerencial") -> str:
     sol       = getattr(est, "solicitud", None)
     empresa   = getattr(sol, "empresa", None)
     candidato = getattr(sol, "candidato", None)
 
     empresa_name = _fmt(getattr(empresa, "nombre", None) or empresa)
+    empresa_logo_url = (getattr(empresa, "logo_url", None) or "").strip()
+    if empresa_logo_url and not empresa_logo_url.startswith(("http://", "https://")) and request:
+        try:
+            empresa_logo_url = request.build_absolute_uri(empresa_logo_url)
+        except Exception:
+            pass
     cand_name    = f"{_fmt(getattr(candidato, 'nombre', None))} {_fmt(getattr(candidato, 'apellido', None))}"
     cand_id      = _fmt(getattr(candidato, "cedula", None))
 
@@ -649,6 +761,7 @@ def _build_html(est: Estudio, request) -> str:
                 f"<td class='kvk'>{escape(k1)}</td><td>{escape(_fmt(v1))}</td>"
                 f"<td class='kvk'>{escape(k2)}</td><td>{escape(_fmt(v2))}</td>"
                 f"</tr>"
+                
             )
         cand_table = (
             "<table class='kvtable'>"
@@ -870,6 +983,12 @@ def _build_html(est: Estudio, request) -> str:
     score_display = f"{score_int}%" if score_int is not None else "—"
 
     # ── Resumen ejecutivo dinámico ──
+    style_label_map = {
+        "gerencial": "Gerencial",
+        "investigativo": "Investigativo",
+        "cumplimiento": "Cumplimiento",
+    }
+    style_title = style_label_map.get(report_style, "Gerencial")
     _exec_texts = {
         "BAJO": (
             f"El candidato {escape(cand_name)} presenta un perfil de <strong>bajo riesgo</strong>. "
@@ -912,7 +1031,102 @@ def _build_html(est: Estudio, request) -> str:
         f"El estudio del candidato {escape(cand_name)} se encuentra en proceso de evaluacion.",
         ["Pendiente de completar todos los modulos del estudio."]
     ))
+    if report_style == "investigativo":
+        exec_lead = (
+            f"Analisis investigativo: el perfil de {escape(cand_name)} se clasifica en "
+            f"<strong>riesgo {nivel_label.lower()}</strong> con score {score_display}."
+        )
+        exec_bullets_list = [
+            f"Total de hallazgos identificados: {hallazgos}.",
+            "Priorizar validacion de identidad, coherencia laboral y soporte documental.",
+            "Escalar hallazgos de alto impacto a revision de segundo analista.",
+        ]
+    elif report_style == "cumplimiento":
+        exec_lead = (
+            f"Resumen de cumplimiento para {escape(cand_name)}: resultado "
+            f"<strong>{nivel_label}</strong> con trazabilidad de evidencias."
+        )
+        exec_bullets_list = [
+            "Consolidar evidencias de debida diligencia y fuentes consultadas.",
+            "Registrar decision y justificacion del analista en el expediente.",
+            "Aplicar seguimiento reforzado cuando el riesgo sea ALTO o CRITICO.",
+        ]
     exec_bullets_html = "".join(f"<li>{b}</li>" for b in exec_bullets_list)
+
+    matrix_cell = {
+        "BAJO": "m-low-low",
+        "MEDIO": "m-low-high",
+        "ALTO": "m-high-low",
+        "CRITICO": "m-high-high",
+    }.get(nivel_raw, "m-low-low")
+    heatmap_html = f"""
+  <div class="heatmap-wrap">
+    <div class="heatmap-bar">
+      <div class="hm-seg hm-bajo { hm_bajo }">
+        <span class="hm-arrow">&#9660;</span>BAJO
+      </div>
+      <div class="hm-seg hm-medio { hm_medio }">
+        <span class="hm-arrow">&#9660;</span>MEDIO
+      </div>
+      <div class="hm-seg hm-alto { hm_alto }">
+        <span class="hm-arrow">&#9660;</span>ALTO
+      </div>
+      <div class="hm-seg hm-critico { hm_critico }">
+        <span class="hm-arrow">&#9660;</span>CRITICO
+      </div>
+    </div>
+    <div class="heatmap-labels">
+      <span>0 &ndash; 24%</span>
+      <span>25 &ndash; 49%</span>
+      <span>50 &ndash; 74%</span>
+      <span>75 &ndash; 100%</span>
+    </div>
+    <div class="score-gauge" style="margin-top:3mm;">
+      <div class="score-marker" style="left:{ marker_pct }%;"></div>
+    </div>
+    <div style="text-align:center;font-size:8pt;color:#94a3b8;margin-top:2mm;">
+      Posicion del score ({ score_display }) en la escala de riesgo
+    </div>
+  </div>
+"""
+    if report_style == "investigativo":
+        heatmap_html = f"""
+  <div class="heatmap-wrap matrix-wrap">
+    <div class="matrix-legend">Probabilidad x Impacto</div>
+    <div class="risk-matrix">
+      <div class="matrix-cell m-low-low {'matrix-active' if matrix_cell == 'm-low-low' else ''}">Bajo</div>
+      <div class="matrix-cell m-low-high {'matrix-active' if matrix_cell == 'm-low-high' else ''}">Medio</div>
+      <div class="matrix-cell m-high-low {'matrix-active' if matrix_cell == 'm-high-low' else ''}">Alto</div>
+      <div class="matrix-cell m-high-high {'matrix-active' if matrix_cell == 'm-high-high' else ''}">Critico</div>
+    </div>
+    <div class="matrix-axes">
+      <span>Probabilidad baja</span><span>Probabilidad alta</span>
+    </div>
+    <div style="text-align:center;font-size:8pt;color:#94a3b8;margin-top:2mm;">
+      Clasificacion activa: { nivel_label } ({ score_display })
+    </div>
+  </div>
+"""
+    elif report_style == "cumplimiento":
+        heatmap_html = f"""
+  <div class="heatmap-wrap traffic-wrap">
+    <div class="traffic-header">Semaforo de riesgo para debida diligencia</div>
+    <div class="traffic-row">
+      <div class="traffic-item {'active' if nivel_raw == 'BAJO' else ''}"><span>BAJO</span><b>Control base</b></div>
+      <div class="traffic-item {'active' if nivel_raw == 'MEDIO' else ''}"><span>MEDIO</span><b>Seguimiento</b></div>
+      <div class="traffic-item {'active' if nivel_raw == 'ALTO' else ''}"><span>ALTO</span><b>Escalamiento</b></div>
+      <div class="traffic-item {'active' if nivel_raw == 'CRITICO' else ''}"><span>CRITICO</span><b>Bloqueo</b></div>
+    </div>
+    <div style="text-align:center;font-size:8pt;color:#94a3b8;margin-top:2mm;">
+      Estado actual: { nivel_label } ({ score_display })
+    </div>
+  </div>
+"""
+    brand_html = (
+        f'<div class="brand"><img src="{escape(empresa_logo_url)}" alt="{escape(empresa_name)}"/></div>'
+        if empresa_logo_url
+        else '<div class="brand"><span class="brand-text">eConfia</span></div>'
+    )
 
     return f"""<!doctype html>
 <html lang="es">
@@ -922,14 +1136,14 @@ def _build_html(est: Estudio, request) -> str:
 <!-- ══ HEADER ══ -->
 <div class="page-header">
   <div class="header-top">
-    <div class="brand">eConfia</div>
+    {brand_html}
     <div class="report-meta">
       Estudio #{ est.id }<br>
       Emitido: { datetime.now().strftime("%d/%m/%Y %H:%M") }<br>
       Empresa: { escape(empresa_name) }
     </div>
   </div>
-  <div class="header-title">Estudio de Seguridad</div>
+  <div class="header-title">Estudio de Seguridad <span class="header-title-company">· { escape(empresa_name) }</span></div>
   <div class="header-sub">{ escape(cand_name) } &nbsp;·&nbsp; C.C. { escape(cand_id) }</div>
   <div class="chips">
     <span class="chip">{ escape(_fmt(getattr(est, "estado", None))) }</span>
@@ -997,7 +1211,7 @@ def _build_html(est: Estudio, request) -> str:
 </div>
 
 <!-- ══ ANALISIS DE RIESGO ══ -->
-<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Analisis de riesgo y resumen ejecutivo</div><div class="sec-line"></div></div>
+<div class="sec-head"><div class="sec-bar"></div><div class="sec-title">Analisis de riesgo y resumen ejecutivo ({style_title})</div><div class="sec-line"></div></div>
 <div class="card nobreak">
   <div class="exec-block">
 
@@ -1017,35 +1231,7 @@ def _build_html(est: Estudio, request) -> str:
   </div>
 
   <!-- Mapa de calor -->
-  <div class="heatmap-wrap">
-    <div class="heatmap-bar">
-      <div class="hm-seg hm-bajo { hm_bajo }">
-        <span class="hm-arrow">&#9660;</span>BAJO
-      </div>
-      <div class="hm-seg hm-medio { hm_medio }">
-        <span class="hm-arrow">&#9660;</span>MEDIO
-      </div>
-      <div class="hm-seg hm-alto { hm_alto }">
-        <span class="hm-arrow">&#9660;</span>ALTO
-      </div>
-      <div class="hm-seg hm-critico { hm_critico }">
-        <span class="hm-arrow">&#9660;</span>CRITICO
-      </div>
-    </div>
-    <div class="heatmap-labels">
-      <span>0 &ndash; 24%</span>
-      <span>25 &ndash; 49%</span>
-      <span>50 &ndash; 74%</span>
-      <span>75 &ndash; 100%</span>
-    </div>
-    <!-- Barra de gradiente con marcador de posicion exacta -->
-    <div class="score-gauge" style="margin-top:3mm;">
-      <div class="score-marker" style="left:{ marker_pct }%;"></div>
-    </div>
-    <div style="text-align:center;font-size:8pt;color:#94a3b8;margin-top:2mm;">
-      Posicion del score ({ score_display }) en la escala de riesgo
-    </div>
-  </div>
+  { heatmap_html }
 </div>
 
 <div class="report-footer">
@@ -1087,8 +1273,8 @@ def _render_pdf_fallback_reportlab(est: Estudio) -> bytes:
             if y < 60: c.showPage(); y = h - 40; c.setFont("Helvetica", 10)
     c.showPage(); c.save(); buff.seek(0); return buff.read()
 
-def generar_pdf_estudio(est: Estudio, request):
-    html = _build_html(est, request)
+def generar_pdf_estudio(est: Estudio, request, report_style="gerencial"):
+    html = _build_html(est, request, report_style=report_style)
     if _HAS_WEASY:
         try:
             return _render_pdf_weasy(html), "weasy"
@@ -1111,11 +1297,24 @@ def estudio_pdf(request, estudio_id):
     ):
         raise Http404()
 
-    if request.GET.get("debug") == "1":
-        return HttpResponse(_build_html(est, request), content_type="text/html")
+    report_style = _normalize_report_style(request.GET.get("style"))
 
-    pdf_bytes, renderer = generar_pdf_estudio(est, request)
+    if request.GET.get("debug") == "1":
+        return HttpResponse(_build_html(est, request, report_style=report_style), content_type="text/html")
+
+    pdf_bytes, renderer = generar_pdf_estudio(est, request, report_style=report_style)
     resp = HttpResponse(pdf_bytes, content_type="application/pdf")
-    resp["Content-Disposition"] = f'attachment; filename="Estudio_{est.id}.pdf"'
+    # Obtener nombre y apellido del candidato
+    candidato = getattr(getattr(est, "solicitud", None), "candidato", None)
+    nombre = getattr(candidato, "nombre", "") if candidato else ""
+    apellido = getattr(candidato, "apellido", "") if candidato else ""
+    # Construir nombre de archivo solo con datos válidos
+    partes = ["Estudio_De_Seguridad_N", str(est.id)]
+    if nombre:
+      partes.append(nombre)
+    if apellido:
+      partes.append(apellido)
+    nombre_archivo = "_".join(partes).replace(" ", "_") + ".pdf"
+    resp["Content-Disposition"] = f'attachment; filename="{nombre_archivo}"'
     resp["X-PDF-Renderer"] = renderer
     return resp

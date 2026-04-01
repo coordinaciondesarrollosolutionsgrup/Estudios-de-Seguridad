@@ -16,26 +16,34 @@ export default function NotificacionesBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [pollEnabled, setPollEnabled] = useState(true);
 
   const nav = useNavigate();
   const btnRef = useRef(null);
   const panelRef = useRef(null);
 
   async function load() {
+    const token = localStorage.getItem("token");
+    if (!token || !pollEnabled) return;
     setLoading(true);
     try {
       const { data } = await api.get("/api/notificaciones/?unread=true");
       setItems(Array.isArray(data) ? data : []);
+    } catch (e) {
+      if (e?.response?.status === 401) {
+        setPollEnabled(false);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    if (!pollEnabled) return;
     load();
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
-  }, []);
+  }, [pollEnabled]);
 
   // Cerrar al click fuera / Esc
   useEffect(() => {

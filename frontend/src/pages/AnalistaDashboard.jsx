@@ -3,6 +3,7 @@ import api from "../api/axios";
 import NotificacionesBell from "../components/NotificacionesBell";
 import ThreeBackground from "../components/ThreeBackground";
 import { useToast } from "../components/Toast";
+import AppNavbar from "../components/AppNavbar";
 
 // Paginación para lista de estudios
 const PAGE_SIZE = 10;
@@ -154,10 +155,17 @@ const yesNo = (v) => (v === true ? "Sí" : v === false ? "No" : "—");
    ======================================================= */
 export default function AnalistaDashboard() {
   const [estudios, setEstudios] = useState([]);
+  const [vistaEstudios, setVistaEstudios] = useState("ASIGNADOS");
   // Paginación de estudios
   const [estudiosPage, setEstudiosPage] = useState(1);
-  const totalEstudiosPages = Math.ceil(estudios.length / PAGE_SIZE);
-  const estudiosPaginados = estudios.slice((estudiosPage - 1) * PAGE_SIZE, estudiosPage * PAGE_SIZE);
+  const estudiosFiltrados = useMemo(() => {
+    if (vistaEstudios === "NO_ASIGNADOS") {
+      return estudios.filter((e) => e.es_propietario === false);
+    }
+    return estudios.filter((e) => e.es_propietario !== false);
+  }, [estudios, vistaEstudios]);
+  const totalEstudiosPages = Math.max(1, Math.ceil(estudiosFiltrados.length / PAGE_SIZE));
+  const estudiosPaginados = estudiosFiltrados.slice((estudiosPage - 1) * PAGE_SIZE, estudiosPage * PAGE_SIZE);
 
   const [f, setF] = useState({ estado: "", desde: "", hasta: "", cedula: "", empresa: "" });
   // Empresas únicas para el filtro
@@ -178,6 +186,9 @@ export default function AnalistaDashboard() {
   const [loading, setLoading] = useState(false);
   const [invitando, setInvitando] = useState(false);
   const [devolviendo, setDevolviendo] = useState(false);
+  const [visitaVirtual, setVisitaVirtual] = useState(null);
+  const [visitaBusy, setVisitaBusy] = useState(false);
+  const [meetingUrlDraft, setMeetingUrlDraft] = useState("");
 
   // “Ampliar detalle”
   const [wide, setWide] = useState(false);
@@ -193,6 +204,18 @@ export default function AnalistaDashboard() {
 
   // Tabs
   const [tab, setTab] = useState("CANDIDATO");
+
+  // Resumen del estudio (fill_candidato por módulo)
+  const [resumen, setResumen] = useState(null);
+
+  const loadResumen = async (id) => {
+    try {
+      const { data } = await api.get(`/api/estudios/${id}/resumen/`);
+      setResumen(data);
+    } catch {
+      setResumen(null);
+    }
+  };
 
   // Listas restrictivas (antecedentes)
   const [archivosRestrictivas, setArchivosRestrictivas] = useState([]);
@@ -326,6 +349,53 @@ export default function AnalistaDashboard() {
     }
   };
 
+  const loadVisitaVirtual = async (id) => {
+    try {
+      const { data } = await api.get(`/api/estudios/${id}/visita-virtual/`);
+      setVisitaVirtual(data || null);
+      if (data?.meeting_url) setMeetingUrlDraft(data.meeting_url);
+    } catch {
+      setVisitaVirtual(null);
+    }
+  };
+
+  const iniciarVisitaVirtual = async () => {
+    if (!sel?.id) return;
+    const url = (meetingUrlDraft || "").trim();
+    if (!url) {
+      toast.error("Ingresa el link de la reunión virtual.");
+      return;
+    }
+    setVisitaBusy(true);
+    try {
+      const { data } = await api.post(`/api/estudios/${sel.id}/visita-virtual/iniciar/`, {
+        meeting_url: url,
+      });
+      setVisitaVirtual(data || null);
+      toast.success("Visita virtual iniciada.");
+    } catch (e) {
+      const detail = e?.response?.data?.detail || e?.response?.data?.meeting_url?.[0] || "No se pudo iniciar la visita virtual.";
+      toast.error(detail);
+    } finally {
+      setVisitaBusy(false);
+    }
+  };
+
+  const finalizarVisitaVirtual = async () => {
+    if (!sel?.id) return;
+    setVisitaBusy(true);
+    try {
+      const { data } = await api.post(`/api/estudios/${sel.id}/visita-virtual/finalizar/`);
+      setVisitaVirtual(data || null);
+      toast.success("Visita virtual finalizada.");
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "No se pudo finalizar la visita virtual.";
+      toast.error(detail);
+    } finally {
+      setVisitaBusy(false);
+    }
+  };
+
   const openEstudio = async (id) => {
     try {
       const [{ data }, bioRes] = await Promise.allSettled([
@@ -359,11 +429,15 @@ export default function AnalistaDashboard() {
       pinProgress(id, data.progreso || 0);
       await loadCentrales(id);
       await loadReferencias(id);
+      await loadVisitaVirtual(id);
+      loadResumen(id); // no-await: carga en paralelo sin bloquear
       setTab("CANDIDATO");
     } catch {
       setSel(null);
       setCentrales([]);
       setRefs({ laborales: [], personales: [] });
+      setResumen(null);
+      setVisitaVirtual(null);
     }
   };
 
@@ -384,6 +458,19 @@ export default function AnalistaDashboard() {
       }
     })();
   }, [sel?.id]);
+
+  useEffect(() => {
+    if (!sel?.id || (visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA") return;
+    const timer = setInterval(() => {
+      loadVisitaVirtual(sel.id);
+    }, 12000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel?.id, visitaVirtual?.estado]);
+
+  useEffect(() => {
+    setEstudiosPage(1);
+  }, [vistaEstudios, estudiosFiltrados.length]);
 
   /* --------------------- acciones globales --------------------- */
   const invitarCandidato = async () => {
@@ -1707,18 +1794,21 @@ export default function AnalistaDashboard() {
       <ThreeBackground />
 
       <div className="max-w-7xl mx-auto p-6 space-y-6 text-white">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold tracking-tight">Panel del analista</h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setWide((w) => !w)}
-              className="rounded-xl border border-white/10 hover:bg-white/10 px-3 py-2 text-sm"
-            >
-              {wide ? "Vista doble" : "Ampliar detalle"}
-            </button>
-            <NotificacionesBell />
-          </div>
-        </div>
+        <AppNavbar
+          title="Panel del analista"
+          subtitle="Gestiona y valida los estudios de seguridad."
+          right={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setWide((w) => !w)}
+                className="rounded-xl border border-white/10 hover:bg-white/10 px-3 py-2 text-sm text-white/80"
+              >
+                {wide ? "Vista doble" : "Ampliar detalle"}
+              </button>
+              <NotificacionesBell />
+            </div>
+          }
+        />
 
         {/* Filtros */}
         <div className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur-md">
@@ -1782,7 +1872,31 @@ export default function AnalistaDashboard() {
           <div className="grid lg:grid-cols-2 gap-6">
             {/* Lista */}
             <div className="space-y-3">
-              <h2 className="text-xl font-semibold">Estudios</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">Estudios</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setVistaEstudios("ASIGNADOS")}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                      vistaEstudios === "ASIGNADOS"
+                        ? "bg-blue-600/80 border-blue-500 text-white"
+                        : "bg-white/5 border-white/15 text-white/80 hover:bg-white/10"
+                    }`}
+                  >
+                    Asignados
+                  </button>
+                  <button
+                    onClick={() => setVistaEstudios("NO_ASIGNADOS")}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition ${
+                      vistaEstudios === "NO_ASIGNADOS"
+                        ? "bg-amber-600/80 border-amber-500 text-white"
+                        : "bg-white/5 border-white/15 text-white/80 hover:bg-white/10"
+                    }`}
+                  >
+                    No asignado
+                  </button>
+                </div>
+              </div>
               <div className="rounded-3xl border border-white/10 bg-white/5 shadow-2xl backdrop-blur-md overflow-hidden">
                 {loading && <div className="p-4 text-sm text-white/70">Cargando…</div>}
                 {!loading &&
@@ -1799,13 +1913,15 @@ export default function AnalistaDashboard() {
                     }
                     empresa = String(empresa);
                     const noPropio = es.es_propietario === false;
+                    const recurrente = !!es.alerta_estudio_recurrente;
                     return (
                       <button
                         key={es.id}
                         onClick={() => openEstudio(es.id)}
                         className={`w-full text-left p-4 border-b border-white/10 last:border-b-0 transition
                           ${sel?.id === es.id ? "bg-white/5" : "hover:bg-white/5"}
-                          ${noPropio ? "bg-gray-700/40 text-gray-300 hover:bg-gray-700/60" : ""}`}
+                          ${noPropio ? "bg-gray-700/40 text-gray-300 hover:bg-gray-700/60" : ""}
+                          ${recurrente ? "ring-1 ring-amber-400/30 bg-amber-500/10" : ""}`}
                         style={noPropio ? { opacity: 0.7, filter: 'grayscale(0.5)' } : {}}
                       >
                         <div className="flex items-center justify-between">
@@ -1821,6 +1937,11 @@ export default function AnalistaDashboard() {
                                 {Math.round(es.score_cuantitativo)}%
                               </span>
                             )}
+                            {recurrente && (
+                              <span className="ml-1 text-[11px] font-semibold rounded-full px-2 py-0.5 text-amber-200 bg-amber-500/20 ring-1 ring-amber-400/30">
+                                Historial previo
+                              </span>
+                            )}
                           </div>
                           <span className={`text-xs ${noPropio ? "text-gray-400" : "text-white/60"}`}>{Math.round(progress)}%</span>
                         </div>
@@ -1832,6 +1953,12 @@ export default function AnalistaDashboard() {
                         )}
                         {noPropio && (
                           <div className="mt-1 text-xs text-gray-400 italic">No asignado</div>
+                        )}
+                        {recurrente && (
+                          <div className="mt-1 text-xs text-amber-200/90">
+                            Alerta: {es.estudios_previos_count || 0} estudio(s) previo(s) para esta cédula
+                            {es.ultimo_estudio_previo_id ? ` · Base migrada desde #${es.ultimo_estudio_previo_id}` : ""}
+                          </div>
                         )}
                       </button>
                     );
@@ -1858,8 +1985,10 @@ export default function AnalistaDashboard() {
                   </div>
                 )}
 
-                {!loading && !estudios.length && (
-                  <div className="p-4 text-sm text-white/70">Sin resultados.</div>
+                {!loading && !estudiosFiltrados.length && (
+                  <div className="p-4 text-sm text-white/70">
+                    {vistaEstudios === "NO_ASIGNADOS" ? "No hay estudios no asignados." : "No hay estudios asignados."}
+                  </div>
                 )}
               </div>
             </div>
@@ -1875,8 +2004,15 @@ export default function AnalistaDashboard() {
               devolviendo={devolviendo}
               openObs={openObs}
               openDecidir={openDecidir}
+              visitaVirtual={visitaVirtual}
+              meetingUrlDraft={meetingUrlDraft}
+              setMeetingUrlDraft={setMeetingUrlDraft}
+              iniciarVisitaVirtual={iniciarVisitaVirtual}
+              finalizarVisitaVirtual={finalizarVisitaVirtual}
+              visitaBusy={visitaBusy}
               tab={tab}
               setTab={setTab}
+              resumen={resumen}
               TabCandidato={TabCandidato}
               TabPorTipo={TabPorTipo}
               TabCentrales={TabCentrales}
@@ -1896,8 +2032,15 @@ export default function AnalistaDashboard() {
             devolver={devolver}
             openObs={openObs}
             openDecidir={openDecidir}
+            visitaVirtual={visitaVirtual}
+            meetingUrlDraft={meetingUrlDraft}
+            setMeetingUrlDraft={setMeetingUrlDraft}
+            iniciarVisitaVirtual={iniciarVisitaVirtual}
+            finalizarVisitaVirtual={finalizarVisitaVirtual}
+            visitaBusy={visitaBusy}
             tab={tab}
             setTab={setTab}
+            resumen={resumen}
             TabCandidato={TabCandidato}
             TabPorTipo={TabPorTipo}
             TabCentrales={TabCentrales}
@@ -2031,8 +2174,15 @@ export function Detalle({
   devolviendo,
   openObs,
   openDecidir,
+  visitaVirtual,
+  meetingUrlDraft,
+  setMeetingUrlDraft,
+  iniciarVisitaVirtual,
+  finalizarVisitaVirtual,
+  visitaBusy,
   tab,
   setTab,
+  resumen,
   TabCandidato,
   TabPorTipo,
   TabCentrales,
@@ -2043,6 +2193,7 @@ export function Detalle({
   TabListasRestrictivas,
 }) {
   const isOwner = !!sel?.es_propietario;
+  const fill = resumen?.fill_candidato || {};
   return (
     <div className="space-y-3">
       <h2 className="text-xl font-semibold">Detalle</h2>
@@ -2055,13 +2206,20 @@ export function Detalle({
           {/* Banner: Estudio a consideración del cliente (ahora dentro del panel, no fixed) */}
           {sel.a_consideracion_cliente && (
             <div
-              className="mb-3 flex items-center gap-4 p-4 border border-yellow-400/40 bg-yellow-100/90 shadow-xl rounded-xl"
+              className="mb-3 p-4 border border-yellow-400/40 bg-yellow-100/90 shadow-xl rounded-xl"
             >
-              <span className="text-amber-700 font-semibold text-base flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <span className="text-amber-700 font-semibold text-base flex items-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mt-0.5 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Este estudio fue creado bajo consideración del cliente. Los criterios seleccionados como no relevantes fueron configurados por el cliente y el resultado debe ser interpretado bajo esa política.
+                <span>
+                  Este estudio fue creado bajo consideración del cliente. Los criterios seleccionados como no relevantes fueron configurados por el cliente y el resultado debe ser interpretado bajo esa política.
+                  {Array.isArray(sel.politicas_no_relevantes) && sel.politicas_no_relevantes.length > 0 && (
+                    <span className="block mt-1 font-normal text-sm text-amber-800">
+                      Criterios no relevantes: ({sel.politicas_no_relevantes.join(", ")})
+                    </span>
+                  )}
+                </span>
               </span>
             </div>
           )}
@@ -2163,37 +2321,101 @@ export function Detalle({
             )}
           </div>
 
+          {isOwner && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-semibold">Visita virtual (fase 1)</div>
+                <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
+                  {visitaVirtual?.estado || "NO_INICIADA"}
+                </Badge>
+              </div>
+
+              <div className="grid md:grid-cols-[1fr_auto_auto] gap-2">
+                <input
+                  type="url"
+                  placeholder="https://meet.google.com/..."
+                  value={meetingUrlDraft || ""}
+                  onChange={(e) => setMeetingUrlDraft(e.target.value)}
+                  className="rounded-xl border border-white/10 bg-white/10 text-white placeholder-white/40 p-2 text-sm outline-none focus:border-white/30 focus:ring-0"
+                  disabled={visitaBusy || isClosed}
+                />
+                <button
+                  onClick={iniciarVisitaVirtual}
+                  disabled={visitaBusy || isClosed}
+                  className="rounded-xl bg-blue-600/90 hover:bg-blue-600 text-white px-3 py-2 text-sm transition disabled:opacity-60"
+                >
+                  {visitaBusy ? "Procesando..." : "Iniciar visita"}
+                </button>
+                <button
+                  onClick={finalizarVisitaVirtual}
+                  disabled={visitaBusy || isClosed || (visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA"}
+                  className="rounded-xl border border-white/10 hover:bg-white/5 px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  Finalizar
+                </button>
+              </div>
+
+              <div className="text-xs text-white/70 space-y-1">
+                <div>
+                  Consentimiento ubicación:{" "}
+                  <span className="text-white">{visitaVirtual?.consentida_por_candidato ? "Aceptado" : "Pendiente"}</span>
+                </div>
+                <div>
+                  Última ubicación:{" "}
+                  {visitaVirtual?.ultima_latitud != null && visitaVirtual?.ultima_longitud != null
+                    ? `${visitaVirtual.ultima_latitud}, ${visitaVirtual.ultima_longitud}`
+                    : "Sin datos"}
+                </div>
+                <div>
+                  Última actualización:{" "}
+                  {visitaVirtual?.ultima_actualizacion_at
+                    ? new Date(visitaVirtual.ultima_actualizacion_at).toLocaleString()
+                    : "Sin datos"}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="mt-1">
             <div className="flex flex-wrap gap-2">
               {[
-                ["CANDIDATO", "Candidato"],
-                ["DOCS", "Docs"],
-                ["ACADEMICO", "Académico"],
-                ["LABORAL", "Laboral"],
-                ["ECONOMICA", "Económica"],
-                ["PATRIMONIO", "Patrimonio"],
-                ["ANEXOS", "Anexos"],
-                ["CENTRALES", "Centrales"],
-                ["LISTAS_RESTRICTIVAS", "Listas Restrictivas"],
-                ["REFERENCIAS", "Referencias"],
-                ["INFO_FAMILIAR", "Info Familiar"],
-                ["DESCRIPCION_VIVIENDA", "Descripción Vivienda"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setTab(key)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-semibold transition
-                    bg-slate-700 text-white/90
-                    border-2
-                    ${tab === key
-                      ? "border-violet-500 shadow-[0_0_10px_2px_rgba(139,92,246,0.4)] bg-slate-800 text-violet-200"
-                      : "border-slate-600 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
-                  `}
-                >
-                  {label}
-                </button>
-              ))}
+                ["CANDIDATO", "Candidato", "BIOGRAFICOS"],
+                ["DOCS", "Docs", "DOCUMENTOS"],
+                ["ACADEMICO", "Académico", "ACADEMICO"],
+                ["LABORAL", "Laboral", "LABORAL"],
+                ["ECONOMICA", "Económica", "ECONOMICA"],
+                ["PATRIMONIO", "Patrimonio", "PATRIMONIO"],
+                ["ANEXOS", "Anexos", "ANEXOS_FOTOGRAFICOS"],
+                ["CENTRALES", "Centrales", null],
+                ["LISTAS_RESTRICTIVAS", "Listas Restrictivas", "LISTAS_RESTRICTIVAS"],
+                ["REFERENCIAS", "Referencias", "REFERENCIAS"],
+                ["INFO_FAMILIAR", "Info Familiar", "INFO_FAMILIAR"],
+                ["DESCRIPCION_VIVIENDA", "Descripción Vivienda", "VIVIENDA"],
+              ].map(([key, label, fillKey]) => {
+                const fillVal = fillKey ? fill[fillKey] : null;
+                const dot = fillVal === true
+                  ? "bg-emerald-400"
+                  : fillVal === false
+                  ? "bg-amber-400"
+                  : null;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setTab(key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold transition
+                      bg-slate-700 text-white/90
+                      border-2
+                      ${tab === key
+                        ? "border-violet-500 shadow-[0_0_10px_2px_rgba(139,92,246,0.4)] bg-slate-800 text-violet-200"
+                        : "border-slate-600 hover:border-violet-400 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
+                    `}
+                  >
+                    {dot && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />}
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mt-3 space-y-3">

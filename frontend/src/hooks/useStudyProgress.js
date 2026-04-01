@@ -15,15 +15,23 @@ export default function useStudyProgress(initial = 0, estudioId = null) {
     if (!estudioId) return;
     let timer = null;
     let aborted = false;
+    let inFlight = false;
 
     const tick = async () => {
+      if (inFlight || document.hidden) {
+        timer = setTimeout(tick, 6000);
+        return;
+      }
+      inFlight = true;
       try {
         const { data } = await api.get(`/api/estudios/${estudioId}/resumen/`);
         if (!aborted) setProgreso(Math.round(data?.progreso ?? 0)); 
       } catch (e) {
         // silencioso
+      } finally {
+        inFlight = false;
       }
-      timer = setTimeout(tick, 2500);
+      timer = setTimeout(tick, 6000);
     };
 
     tick();

@@ -46,3 +46,19 @@ export const saveConfigFormulario = (payload) =>
 
 export const getHistorialConfig = () =>
   api.get("/api/historial-config/");
+
+// ===== Visita virtual (fase 1) =====
+export const getVisitaVirtual = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/visita-virtual/`);
+
+export const iniciarVisitaVirtual = (estudioId, meetingUrl) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/iniciar/`, { meeting_url: meetingUrl });
+
+export const finalizarVisitaVirtual = (estudioId) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/finalizar/`);
+
+export const consentirVisitaVirtual = (estudioId) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/consentir/`);
+
+export const enviarUbicacionVisitaVirtual = (estudioId, payload) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/ubicacion/`, payload);

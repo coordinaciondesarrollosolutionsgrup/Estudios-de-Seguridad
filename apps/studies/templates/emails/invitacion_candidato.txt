@@ -9,6 +9,13 @@ Usuario: {{ usuario }}
 {% if temp_password %}Contraseña temporal: {{ temp_password }}{% endif %}
 Enlace de acceso: {{ link }}
 
+{% if access_deadline %}
+Importante:
+- Este acceso estará activo por {{ access_hours|default:24 }} horas desde su creación.
+- Fecha límite: {{ access_deadline|date:"d/m/Y H:i" }}.
+- Después de ese tiempo, su usuario quedará inactivo.
+{% endif %}
+
 Por favor, revise la información en el sistema y siga las instrucciones proporcionadas.
 
 Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

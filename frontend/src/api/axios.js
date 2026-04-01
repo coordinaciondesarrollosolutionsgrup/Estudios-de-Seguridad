@@ -17,8 +17,9 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err?.response?.status;
-    const isLoginEndpoint = err?.config?.url?.includes("/auth/token");
-    if (status === 401 && !isLoginEndpoint && !_sessionExpiredFired) {
+    const url = err?.config?.url || "";
+    const isAuthEndpoint = url.includes("/auth/login/") || url.includes("/auth/token") || url.includes("/auth/password-reset/");
+    if (status === 401 && !isAuthEndpoint && !_sessionExpiredFired) {
       _sessionExpiredFired = true;
       window.dispatchEvent(new CustomEvent("session:expired"));
     }

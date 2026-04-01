@@ -6,6 +6,7 @@ from io import BytesIO
 import io
 import os
 import base64
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -17,6 +18,7 @@ from django.http import FileResponse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
+from datetime import timedelta
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -58,6 +60,8 @@ from .models import (
     EstudioReferencia,
     ReferenciaPersonal,
     Patrimonio,
+    EstudioVisitaVirtual,
+    VisitaVirtualEstado,
     ClienteConfiguracionFormulario,
     ClientePoliticaConfiguracion,
     HistorialConfiguracion,
@@ -65,6 +69,7 @@ from .models import (
 from .serializers import (
     SolicitudCreateSerializer,
     EstudioSerializer,
+    EstudioClienteListSerializer,
     EstudioItemSerializer,
     EstudioConsentimientoSerializer,
     LaboralSerializer,
@@ -311,6 +316,136 @@ def _ensure_item_modulo(estudio: Estudio, tipo: str) -> EstudioItem:
     return item
 
 
+def _latest_previous_study(candidato, exclude_estudio_id=None):
+    qs = Estudio.objects.filter(solicitud__candidato=candidato)
+    if exclude_estudio_id:
+        qs = qs.exclude(pk=exclude_estudio_id)
+    return qs.order_by("-solicitud__created_at", "-id").first()
+
+
+def _clone_model_rows(model, source_qs, *, estudio_destino, candidato_destino):
+    model_fields = {f.name: f for f in model._meta.fields}
+    has_candidato = "candidato" in model_fields
+
+    for obj in source_qs:
+        payload = {}
+        for f in model._meta.fields:
+            if f.primary_key or f.auto_created:
+                continue
+            if f.name in {"estudio", "candidato", "creado", "created_at", "updated_at"}:
+                continue
+
+            value = getattr(obj, f.name, None)
+            if f.is_relation and f.many_to_one:
+                payload[f.name + "_id"] = value.id if value else None
+            else:
+                if hasattr(value, "name"):  # FileField
+                    payload[f.name] = value.name if value else None
+                else:
+                    payload[f.name] = value
+
+        payload["estudio"] = estudio_destino
+        if has_candidato:
+            payload["candidato"] = candidato_destino
+        model.objects.create(**payload)
+
+
+def _migrate_relevant_data_from_previous_study(prev_est: Estudio, new_est: Estudio):
+    if not prev_est or not new_est:
+        return
+
+    cand = new_est.solicitud.candidato
+
+    _clone_model_rows(Academico, Academico.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+    _clone_model_rows(Laboral, Laboral.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+    _clone_model_rows(Economica, Economica.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+    _clone_model_rows(ReferenciaPersonal, ReferenciaPersonal.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+    _clone_model_rows(Patrimonio, Patrimonio.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+
+    # Datos principalmente útiles para analista:
+    _clone_model_rows(EstudioReferencia, EstudioReferencia.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
+    _clone_model_rows(
+        EstudioDocumento,
+        EstudioDocumento.objects.filter(estudio=prev_est, categoria="CENTRALES").order_by("id"),
+        estudio_destino=new_est,
+        candidato_destino=cand,
+    )
+
+
+# ======================================================================================
+# Helper: llenado real del candidato por módulo
+# ======================================================================================
+
+def _candidato_fill(est: Estudio):
+    """
+    Devuelve (fill_dict, progreso_pct) donde fill_dict mapea tipo de item →
+      True  = candidato ya ingresó datos en este módulo,
+      False = módulo vacío,
+      None  = módulo que llena el analista (N/A para candidato).
+    """
+    cand = est.solicitud.candidato
+
+    fill = {}
+
+    # BIOGRAFICOS – campos clave del candidato
+    bio_fields = ["fecha_nacimiento", "telefono", "celular", "direccion", "sexo", "estatura_cm"]
+    fill["BIOGRAFICOS"] = any(getattr(cand, f, None) for f in bio_fields)
+
+    # INFO_FAMILIAR
+    try:
+        fill["INFO_FAMILIAR"] = bool(getattr(cand, "informacion_familiar", None))
+    except Exception:
+        fill["INFO_FAMILIAR"] = False
+
+    # VIVIENDA
+    try:
+        fill["VIVIENDA"] = bool(getattr(cand, "descripcion_vivienda", None))
+    except Exception:
+        fill["VIVIENDA"] = False
+
+    # ACADEMICO
+    fill["ACADEMICO"] = est.academicos.exists()
+
+    # LABORAL
+    fill["LABORAL"] = est.laborales.exists()
+
+    # REFERENCIAS
+    try:
+        refs = est.referencias.exists()
+    except Exception:
+        refs = False
+    try:
+        refs_p = est.refs_personales.exists()
+    except Exception:
+        refs_p = False
+    fill["REFERENCIAS"] = refs or refs_p
+
+    # ECONOMICA
+    fill["ECONOMICA"] = est.economicas.exists()
+
+    # PATRIMONIO
+    try:
+        fill["PATRIMONIO"] = est.patrimonios.exists()
+    except Exception:
+        fill["PATRIMONIO"] = False
+
+    # DOCUMENTOS
+    fill["DOCUMENTOS"] = est.documentos.exists()
+
+    # ANEXOS_FOTOGRAFICOS
+    fill["ANEXOS_FOTOGRAFICOS"] = est.anexos_foto.exists()
+
+    # LISTAS_RESTRICTIVAS – lo llena el analista, no el candidato
+    fill["LISTAS_RESTRICTIVAS"] = None
+
+    # Progreso candidato: solo módulos con valor bool (excluye None)
+    candidate_modules = [k for k, v in fill.items() if v is not None]
+    filled = sum(1 for k in candidate_modules if fill[k])
+    pct = round((filled / len(candidate_modules)) * 100.0, 1) if candidate_modules else 0.0
+
+    return fill, pct
+
+
 # ======================================================================================
 # Solicitudes
 # ======================================================================================
@@ -364,6 +499,12 @@ class SolicitudViewSet(viewsets.ModelViewSet):
         solicitud = serializer.save(empresa=emp)
         solicitud.estado = getattr(getattr(Solicitud, "Estado", None), "PENDIENTE_INVITACION", "PENDIENTE_INVITACION")
         solicitud.save(update_fields=["estado"])
+
+        nuevo_estudio = getattr(solicitud, "estudio", None)
+        if nuevo_estudio:
+            previo = _latest_previous_study(solicitud.candidato, exclude_estudio_id=nuevo_estudio.id)
+            if previo:
+                _migrate_relevant_data_from_previous_study(previo, nuevo_estudio)
 
         # Si se crea el Estudio aquí, marcarlo como a_consideracion_cliente si corresponde
         if hasattr(solicitud, "estudio"):
@@ -443,6 +584,7 @@ class SolicitudViewSet(viewsets.ModelViewSet):
         User = get_user_model()
         user = User.objects.filter(email=cand.email).first()
         temp_password = None
+        access_hours = 24
 
         if not user:
             base_username = cand.email or f"cand_{cand.cedula}"
@@ -452,9 +594,19 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 username = f"{base_username}_{i}"
                 i += 1
             temp_password = get_random_string(10)
+            access_deadline = timezone.now() + timedelta(hours=access_hours)
             user = User.objects.create_user(
-                username=username, email=cand.email, password=temp_password, rol="CANDIDATO"
+                username=username,
+                email=cand.email,
+                password=temp_password,
+                rol="CANDIDATO",
+                candidate_access_expires_at=access_deadline,
+                is_active=True,
             )
+        else:
+            access_deadline = getattr(user, "candidate_access_expires_at", None)
+            if getattr(user, "rol", None) == "CANDIDATO" and not access_deadline:
+                access_deadline = user.date_joined + timedelta(hours=access_hours)
 
         frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173")
         link = f"{frontend}/candidato"
@@ -470,6 +622,8 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 "usuario": user.username,
                 "temp_password": temp_password,
                 "link": link,
+                "access_hours": access_hours,
+                "access_deadline": access_deadline,
             }
         mensaje_html_candidato = render_to_string("emails/invitacion_candidato.html", context_candidato)
         mensaje_txt_candidato = render_to_string("emails/invitacion_candidato.txt", context_candidato)
@@ -521,10 +675,17 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     queryset = (
         Estudio.objects.all()
-        .select_related("solicitud", "solicitud__candidato", "solicitud__empresa", "solicitud__analista")
+        .select_related("solicitud", "solicitud__candidato", "solicitud__empresa", "solicitud__analista", "visita_virtual")
         .prefetch_related("items", "documentos","consentimientos")
     )
     serializer_class = EstudioSerializer
+
+    def get_serializer_class(self):
+        rol = getattr(getattr(self, "request", None), "user", None)
+        rol = getattr(rol, "rol", None)
+        if self.action == "list" and rol == "CLIENTE":
+            return EstudioClienteListSerializer
+        return super().get_serializer_class()
 
     @staticmethod
     def _is_owner(est, user):
@@ -546,6 +707,163 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                 raise PermissionDenied("Solo el analista asignado puede editar este estudio.")
         # Admin puede todo, los demás roles no editan
         return None
+
+    @staticmethod
+    def _serialize_visita(vv, include_location=False):
+        if not vv:
+            return {"exists": False, "estado": "NO_INICIADA"}
+
+        data = {
+            "exists": True,
+            "id": vv.id,
+            "meeting_url": vv.meeting_url,
+            "estado": vv.estado,
+            "consentida_por_candidato": bool(vv.consentida_por_candidato),
+            "consentida_at": vv.consentida_at,
+            "activa_desde": vv.activa_desde,
+            "finalizada_at": vv.finalizada_at,
+            "ultima_actualizacion_at": vv.ultima_actualizacion_at,
+        }
+        if include_location:
+            data.update(
+                {
+                    "ultima_latitud": vv.ultima_latitud,
+                    "ultima_longitud": vv.ultima_longitud,
+                    "ultima_precision_m": vv.ultima_precision_m,
+                }
+            )
+        return data
+
+    @action(detail=True, methods=["get"], url_path="visita-virtual")
+    def visita_virtual(self, request, pk=None):
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if rol == "ANALISTA":
+            denied = self._check_owner(est, request)
+            if denied:
+                return denied
+            vv = getattr(est, "visita_virtual", None)
+            return Response(self._serialize_visita(vv, include_location=True))
+
+        if rol == "ADMIN":
+            vv = getattr(est, "visita_virtual", None)
+            return Response(self._serialize_visita(vv, include_location=True))
+
+        if rol == "CANDIDATO":
+            if est.solicitud.candidato.email != getattr(request.user, "email", None):
+                return Response({"detail": "Sin permiso."}, status=403)
+            vv = getattr(est, "visita_virtual", None)
+            return Response(self._serialize_visita(vv, include_location=False))
+
+        return Response({"detail": "Sin permiso."}, status=403)
+
+    @action(detail=True, methods=["post"], url_path="visita-virtual/iniciar")
+    def visita_virtual_iniciar(self, request, pk=None):
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+        if rol not in {"ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+        denied = self._check_owner(est, request)
+        if denied:
+            return denied
+
+        meeting_url = (request.data.get("meeting_url") or "").strip()
+        if not meeting_url:
+            return Response({"meeting_url": ["Requerido."]}, status=400)
+        if not meeting_url.startswith(("https://", "http://")):
+            return Response({"meeting_url": ["Debe iniciar con http:// o https://"]}, status=400)
+
+        vv, created = EstudioVisitaVirtual.objects.get_or_create(
+            estudio=est,
+            defaults={"meeting_url": meeting_url, "creada_por": request.user},
+        )
+        if not created:
+            vv.meeting_url = meeting_url
+        vv.estado = VisitaVirtualEstado.ACTIVA
+        vv.finalizada_at = None
+        vv.consentida_por_candidato = False
+        vv.consentida_at = None
+        vv.ultima_latitud = None
+        vv.ultima_longitud = None
+        vv.ultima_precision_m = None
+        vv.ultima_actualizacion_at = None
+        vv.save()
+
+        return Response(self._serialize_visita(vv, include_location=True), status=201 if created else 200)
+
+    @action(detail=True, methods=["post"], url_path="visita-virtual/finalizar")
+    def visita_virtual_finalizar(self, request, pk=None):
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+        if rol not in {"ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+        denied = self._check_owner(est, request)
+        if denied:
+            return denied
+
+        vv = getattr(est, "visita_virtual", None)
+        if not vv:
+            return Response({"detail": "No hay visita virtual activa para este estudio."}, status=404)
+
+        vv.estado = VisitaVirtualEstado.FINALIZADA
+        vv.finalizada_at = timezone.now()
+        vv.save(update_fields=["estado", "finalizada_at", "updated_at"])
+        return Response(self._serialize_visita(vv, include_location=True))
+
+    @action(detail=True, methods=["post"], url_path="visita-virtual/consentir")
+    def visita_virtual_consentir(self, request, pk=None):
+        est = self.get_object()
+        if str(getattr(request.user, "rol", "")).upper() != "CANDIDATO":
+            return Response({"detail": "Sin permiso."}, status=403)
+        if est.solicitud.candidato.email != getattr(request.user, "email", None):
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        vv = getattr(est, "visita_virtual", None)
+        if not vv or vv.estado != VisitaVirtualEstado.ACTIVA:
+            return Response({"detail": "No hay visita virtual activa."}, status=400)
+
+        vv.consentida_por_candidato = True
+        vv.consentida_at = timezone.now()
+        vv.save(update_fields=["consentida_por_candidato", "consentida_at", "updated_at"])
+        return Response({"ok": True, "consentida_at": vv.consentida_at})
+
+    @action(detail=True, methods=["post"], url_path="visita-virtual/ubicacion")
+    def visita_virtual_ubicacion(self, request, pk=None):
+        est = self.get_object()
+        if str(getattr(request.user, "rol", "")).upper() != "CANDIDATO":
+            return Response({"detail": "Sin permiso."}, status=403)
+        if est.solicitud.candidato.email != getattr(request.user, "email", None):
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        vv = getattr(est, "visita_virtual", None)
+        if not vv or vv.estado != VisitaVirtualEstado.ACTIVA:
+            return Response({"detail": "No hay visita virtual activa."}, status=400)
+        if not vv.consentida_por_candidato:
+            return Response({"detail": "Debes aceptar compartir ubicación antes de enviar coordenadas."}, status=400)
+
+        try:
+            lat = Decimal(str(request.data.get("lat")))
+            lng = Decimal(str(request.data.get("lng")))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"detail": "lat/lng inválidos."}, status=400)
+
+        if lat < Decimal("-90") or lat > Decimal("90") or lng < Decimal("-180") or lng > Decimal("180"):
+            return Response({"detail": "lat/lng fuera de rango."}, status=400)
+
+        precision = request.data.get("accuracy")
+        try:
+            precision = Decimal(str(precision)) if precision is not None else None
+        except (InvalidOperation, TypeError, ValueError):
+            precision = None
+
+        vv.ultima_latitud = lat
+        vv.ultima_longitud = lng
+        vv.ultima_precision_m = precision
+        vv.ultima_actualizacion_at = timezone.now()
+        vv.save(update_fields=["ultima_latitud", "ultima_longitud", "ultima_precision_m", "ultima_actualizacion_at", "updated_at"])
+
+        return Response({"ok": True, "ultima_actualizacion_at": vv.ultima_actualizacion_at})
 
 
     
@@ -699,8 +1017,16 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = super().get_queryset()
         rol = getattr(user, "rol", None)
+        if self.action == "list" and rol == "CLIENTE":
+            qs = Estudio.objects.select_related(
+                "solicitud",
+                "solicitud__candidato",
+                "solicitud__empresa",
+                "solicitud__analista",
+            )
+        else:
+            qs = super().get_queryset()
 
         if rol == "ADMIN":
             base = qs
@@ -883,10 +1209,14 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         validados = items.filter(estado="VALIDADO").count()
         hallazgos = items.filter(estado="HALLAZGO").count()
 
+        # ── Calcular llenado real del candidato por módulo ──
+        fill, progreso_candidato = _candidato_fill(est)
+
         secciones = {}
         for it in items:
-            sec = it.get_tipo_display() if hasattr(it, "get_tipo_display") else it.tipo
-            secciones.setdefault(sec, {"estado": [], "validados": 0, "hallazgos": 0})
+            tipo = it.tipo
+            sec = it.get_tipo_display() if hasattr(it, "get_tipo_display") else tipo
+            secciones.setdefault(sec, {"estado": [], "validados": 0, "hallazgos": 0, "tipo": tipo, "fill_candidato": fill.get(tipo, None)})
             secciones[sec]["estado"].append(it.estado)
             if it.estado == "VALIDADO":
                 secciones[sec]["validados"] += 1
@@ -896,6 +1226,8 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         data = {
             "estudio_id": est.id,
             "progreso": est.progreso,
+            "progreso_candidato": progreso_candidato,
+            "fill_candidato": fill,
             "score_cuantitativo": est.score_cuantitativo,
             "nivel_cualitativo": est.nivel_cualitativo,
             "totales": {"items": total, "validados": validados, "hallazgos": hallazgos},

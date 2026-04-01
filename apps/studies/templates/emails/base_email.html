@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load email_settings %}{% frontend_url as base_url %}<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -14,12 +14,12 @@
           <!-- HEADER -->
           <tr>
             <td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:32px 40px;text-align:center;">
-              <img src="https://conecta.econfia.co/static/img/logo_white.png"
-                   alt="Econfia"
-                   width="160"
-                   style="max-width:160px;height:auto;display:block;margin:0 auto;"
+              <img src="{{ base_url }}/logo-econfia%20blanco.png"
+                   alt="eConfia"
+                   width="180"
+                   style="max-width:180px;height:auto;display:block;margin:0 auto;"
                    onerror="this.style.display='none';document.getElementById('logo-text').style.display='block';" />
-              <div id="logo-text" style="display:none;color:#ffffff;font-size:28px;font-weight:800;letter-spacing:2px;">ECONFIA</div>
+              <div id="logo-text" style="display:none;color:#ffffff;font-size:28px;font-weight:800;letter-spacing:2px;">eCONFIA</div>
               <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:8px 0 0 0;letter-spacing:1px;text-transform:uppercase;">Sistema de Estudios de Seguridad</p>
             </td>
           </tr>

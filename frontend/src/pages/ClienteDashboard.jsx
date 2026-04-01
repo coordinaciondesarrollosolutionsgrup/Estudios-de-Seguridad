@@ -1,18 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/axios";
 import { saveConfigFormulario, getHistorialConfig } from "../api/studies";
-import ProgressBarLive from "../components/ProgressBarLive";
+import AppNavbar from "../components/AppNavbar";
+import ProgressBar from "../components/ProgressBar";
 import AlertaConsideracionCliente from "../components/AlertaConsideracionCliente";
-import useStudyProgress from "../hooks/useStudyProgress";
 import ThreeBackground from "../components/ThreeBackground";
 import { useToast } from "../components/Toast";
 
 import {
-  Building2,
+
   FileText,
+  Folder,
   Download,
   PlusCircle,
   UserRound,
+  Users,
+  House,
+  GraduationCap,
+  BriefcaseBusiness,
+  ClipboardList,
+  Landmark,
+  Camera,
+  Search,
   Mail,
   Phone,
   MapPin,
@@ -24,17 +33,16 @@ const inputCls =
   "rounded-lg border border-white/10 bg-white/10 p-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/30";
 const cardCls =
   "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl";
-
-/* ======================= Small components ======================= */
-function LivePct({ studyId, initial = 0 }) {
-  const p = useStudyProgress(initial, studyId);
-  const val = Number.isFinite(p) ? p : initial || 0;
-  return <>{Math.round(val)}%</>;
-}
+const REPORT_STYLE_OPTIONS = [
+  { value: "gerencial", label: "Gerencial" },
+  { value: "investigativo", label: "Investigativo" },
+  { value: "cumplimiento", label: "Cumplimiento" },
+];
 
 /* ======================= Main ======================= */
 export default function ClienteDashboard() {
         const [showHistorialModal, setShowHistorialModal] = useState(false);
+        const [modalSeccion, setModalSeccion] = useState(null); // Modal avance sección
         const [historialData, setHistorialData] = useState([]);
         const [loadingHistorial, setLoadingHistorial] = useState(false);
       // Estado para la configuración guardada
@@ -84,6 +92,9 @@ export default function ClienteDashboard() {
   const [creando, setCreando] = useState(false);
 
   const [generating, setGenerating] = useState(false);
+  const [reportStyle, setReportStyle] = useState("gerencial");
+  const resumenCacheRef = useRef(new Map());
+  const resumenReqSeqRef = useRef(0);
 
   const [form, setForm] = useState({
     nombre: "",
@@ -104,13 +115,18 @@ export default function ClienteDashboard() {
   const [politicaEdit, setPoliticaEdit] = useState({});
   const [politicasBloqueadas, setPoliticasBloqueadas] = useState(false);
 
-  // Progreso en vivo para el resumen
-  const resumenStudyId = sel?.estudio_id ?? sel?.id ?? null;
-  useStudyProgress(sel?.progreso || 0, resumenStudyId);
-
   /* ---------- API: cargar resumen de un estudio ---------- */
   const openResumen = useCallback(async (id, signal) => {
+    if (!id) return;
+    const cached = resumenCacheRef.current.get(id);
+    if (cached) {
+      setSel(cached);
+      return;
+    }
+    const reqSeq = ++resumenReqSeqRef.current;
     const { data } = await api.get(`/api/estudios/${id}/resumen/`, { signal });
+    if (reqSeq !== resumenReqSeqRef.current) return;
+    resumenCacheRef.current.set(id, data);
     setSel(data);
   }, []);
 
@@ -120,6 +136,7 @@ export default function ClienteDashboard() {
       const { data } = await api.get("/api/estudios/", { signal });
       const list = Array.isArray(data) ? data : [];
       setEstudios(list);
+      resumenCacheRef.current.clear();
       if (list.length) await openResumen(list[0].id, signal);
       else setSel(null);
     },
@@ -133,6 +150,7 @@ export default function ClienteDashboard() {
       try {
         const { data } = await api.get("/api/auth/me/", { signal: ac.signal });
         setMe(data);
+        localStorage.setItem("empresa_logo_url", data?.empresa_logo_url || "");
 
         const _hasEmpresa = Boolean(
           data?.empresa_id != null ? data.empresa_id : data?.empresa
@@ -155,6 +173,7 @@ export default function ClienteDashboard() {
       } catch (e) {
         if (e.name !== "CanceledError" && e.name !== "AbortError") {
           console.error(e);
+          localStorage.removeItem("empresa_logo_url");
           setMsg("No autenticado. Inicia sesión nuevamente.");
         }
       } finally {
@@ -213,7 +232,7 @@ export default function ClienteDashboard() {
           });
         }
         if (existeMismaEmpresa) {
-          return setMsg("Ya existe un estudio para esta cédula en esta empresa. No se puede crear otro.");
+          toast.info("Atenci�n: esta c�dula ya tiene estudio(s) en tu empresa. Se crear� un nuevo estudio con historial relevante.");
         }
         if (empresasOtras.length > 0) {
           toast.info(`Atención: Ya existe(n) estudio(s) con esta cédula en otra(s) empresa(s): ${empresasOtras.join(", ")}`);
@@ -265,18 +284,19 @@ export default function ClienteDashboard() {
 
   /* ======================= Descargar PDF generado en el backend ======================= */
   const descargarPDFServidor = useCallback(
-    async (id) => {
+    async (id, style = reportStyle) => {
       if (generating) return;
       setGenerating(true);
       try {
         const res = await api.get(`/api/estudios/${id}/pdf/`, {
           responseType: "blob",
+          params: { style },
         });
 
         // nombre sugerido (si viene del header)
         const cd = res.headers?.["content-disposition"] || "";
         const m = /filename="?([^"]+)"?/i.exec(cd);
-        const suggested = m?.[1] || `Estudio_${id}.pdf`;
+        const suggested = m?.[1] || `Estudio De Seguridad_N°_${id}_.pdf`;
 
         const blob = new Blob([res.data], { type: "application/pdf" });
         const url = URL.createObjectURL(blob);
@@ -302,7 +322,7 @@ export default function ClienteDashboard() {
         setGenerating(false);
       }
     },
-    [generating]
+    [generating, reportStyle]
   );
 
   /* ---------- Derivados ---------- */
@@ -583,22 +603,12 @@ export default function ClienteDashboard() {
 
       <div className="mx-auto max-w-6xl p-6 space-y-6">
         {/* Header */}
-        <div className={`${cardCls} p-5`}>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-3">
-              <Building2 className="h-6 w-6 text-white/80" />
-              <div>
-                <h1 className="text-2xl font-extrabold tracking-tight">Portal del cliente</h1>
-                <p className="text-sm text-white/60">Crea solicitudes y revisa el estado de tus estudios.</p>
-              </div>
-            </div>
-            {me && (
-              <div className="text-xs text-white/80">
-                Usuario: <b>{me.username}</b> · Rol: <b>{me.rol}</b> · Empresa: <b>{empresaNombre}</b>
-              </div>
-            )}
-          </div>
-        </div>
+        <AppNavbar
+          title="Portal del cliente"
+          subtitle={empresaNombre ? `Empresa: ${empresaNombre}` : "Crea solicitudes y revisa el estado de tus estudios."}
+          username={me?.username}
+          role={me?.rol}
+        />
 
         {/* Mensaje global */}
         {msg && (
@@ -778,7 +788,7 @@ export default function ClienteDashboard() {
               {loadingHistorial ? (
                 <div style={{textAlign:'center',padding:'24px 0',color:'#9ca3af',fontSize:13}}>Cargando historial...</div>
               ) : historialData.length === 0 ? (
-                <div style={{textAlign:'center',padding:'24px 0',color:'#9ca3af',fontSize:13}}>No hay cambios registrados aún.</div>
+                <div style={{textAlign:'center',padding:'24px 0',color:'#9ca3af',fontSize:13}}>"No hay cambios registrados aún."</div>
               ) : (
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
@@ -1004,6 +1014,8 @@ export default function ClienteDashboard() {
             <div className={`${cardCls} divide-y divide-white/5`}>
               {estudios.length ? (
                 estudios.slice((paginaActual - 1) * 8, paginaActual * 8).map((es) => (
+                  (() => {
+                    return (
                   <button
                     key={es.id}
                     onClick={() => openResumen(es.id)}
@@ -1018,7 +1030,7 @@ export default function ClienteDashboard() {
                         <div className="text-xs text-white/70 flex items-center gap-3">
                           <span>{es.nivel_cualitativo || "—"}</span>
                           <span>
-                            <LivePct studyId={es.id} initial={es.progreso || 0} />
+                            {Math.round(es.progreso || 0)}%
                           </span>
                         </div>
                       </div>
@@ -1034,9 +1046,11 @@ export default function ClienteDashboard() {
                       </div>
                     </div>
                     <div className="px-3 pb-3">
-                      <ProgressBarLive estudioId={es.id} initial={es.progreso || 0} />
+                      <ProgressBar value={Math.round(es.progreso || 0)} />
                     </div>
                   </button>
+                    );
+                  })()
                 ))
               ) : (
                 <div className="p-4 text-sm text-white/70">Sin estudios.</div>
@@ -1095,58 +1109,194 @@ export default function ClienteDashboard() {
                     return [];
                   })()}
                 />
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">Estudio #{sel.estudio_id}</div>
-                  <div className="text-sm text-white/80">
-                    Progreso: <LivePct studyId={resumenStudyId} initial={sel.progreso || 0} />
-                  </div>
+                {/* Cabecera: dos anillos (candidato llenado + analista validado) */}
+                {(() => {
+                  const pctCand = Math.round(sel.progreso_candidato ?? sel.progreso ?? 0);
+                  const pctAnal = Math.round(sel.progreso || 0);
+                  const circ = 2 * Math.PI * 42;
+                  const filledCand = (pctCand / 100) * circ;
+                  const filledAnal = (pctAnal / 100) * circ;
+                  return (
+                    <div className="flex items-center gap-5 pb-3 border-b border-white/10">
+                      {/* Anillos apilados SVG */}
+                      <div className="relative flex-shrink-0">
+                        <svg width="96" height="96" viewBox="0 0 100 100">
+                          <defs>
+                            <linearGradient id="gradCand" x1="0%" y1="0%" x2="100%" y2="0%">
+                              <stop offset="0%" stopColor="#1d4ed8"/><stop offset="100%" stopColor="#38bdf8"/>
+                            </linearGradient>
+                            <linearGradient id="gradAnal" x1="0%" y1="0%" x2="100%" y2="0%">
+                              <stop offset="0%" stopColor="#059669"/><stop offset="100%" stopColor="#34d399"/>
+                            </linearGradient>
+                          </defs>
+                          {/* Pista exterior (candidato) */}
+                          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(56,189,248,.08)" strokeWidth="8"/>
+                          <circle cx="50" cy="50" r="42" fill="none" stroke="url(#gradCand)" strokeWidth="8"
+                            strokeDasharray={`${filledCand} ${circ}`} strokeLinecap="round"
+                            style={{ transform:"rotate(-90deg)", transformOrigin:"50px 50px" }}/>
+                          {/* Pista interior (analista) */}
+                          <circle cx="50" cy="50" r="30" fill="none" stroke="rgba(52,211,153,.08)" strokeWidth="6"/>
+                          <circle cx="50" cy="50" r="30" fill="none" stroke="url(#gradAnal)" strokeWidth="6"
+                            strokeDasharray={`${filledAnal} ${2*Math.PI*30}`} strokeLinecap="round"
+                            style={{ transform:"rotate(-90deg)", transformOrigin:"50px 50px" }}/>
+                          {/* Porcentaje central */}
+                          <text x="50" y="47" textAnchor="middle" fill="#f1f5f9" fontSize="15" fontWeight="900">{pctCand}%</text>
+                          <text x="50" y="60" textAnchor="middle" fill="rgba(255,255,255,.4)" fontSize="7" fontWeight="600" letterSpacing="0.5">LLENADO</text>
+                        </svg>
+                      </div>
+                      {/* Info + leyenda */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-white/50 uppercase tracking-wider mb-0.5">Estudio #{sel.estudio_id}</div>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="flex items-center gap-1.5 text-xs">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{background:"linear-gradient(#1d4ed8,#38bdf8)"}}/>
+                            <span className="text-white/70">Candidato lleno <b className="text-white">{pctCand}%</b></span>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="flex items-center gap-1.5 text-xs">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{background:"linear-gradient(#059669,#34d399)"}}/>
+                            <span className="text-white/70">Analista valido <b className="text-white">{pctAnal}%</b></span>
+                          </span>
+                        </div>
+                        <div className="text-xs text-white/50 mt-2">
+                          Autorizacion:{" "}
+                          <span className={sel.autorizacion?.firmada ? "text-emerald-400 font-semibold" : "text-amber-400 font-semibold"}>
+                            {sel.autorizacion?.firmada ? "Firmada OK" : "Pendiente"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Stats */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Modulos", val: sel.totales.items, color: "#38bdf8", bg: "rgba(56,189,248,.10)", brd: "rgba(56,189,248,.25)" },
+                    { label: "Validados", val: sel.totales.validados, color: "#34d399", bg: "rgba(52,211,153,.10)", brd: "rgba(52,211,153,.25)" },
+                    { label: "Hallazgos", val: sel.totales.hallazgos, color: "#fbbf24", bg: "rgba(251,191,36,.10)", brd: "rgba(251,191,36,.25)" },
+                  ].map(({ label, val, color, bg, brd }) => (
+                    <div key={label} className="rounded-xl p-3 text-center" style={{ background: bg, border: `1px solid ${brd}` }}>
+                      <div className="text-2xl font-black" style={{ color }}>{val}</div>
+                      <div className="text-xs text-white/50 uppercase tracking-wide mt-0.5">{label}</div>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    <div className="text-white/70">Items</div>
-                    <div className="font-semibold">{sel.totales.items}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    <div className="text-white/70">Validados</div>
-                    <div className="font-semibold">{sel.totales.validados}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    <div className="text-white/70">Hallazgos</div>
-                    <div className="font-semibold">{sel.totales.hallazgos}</div>
-                  </div>
-                </div>
+                {/* Grid de secciones */}
+                {(() => {
+                  const ICONS = {
+                    BIOGRAFICOS: UserRound,
+                    INFO_FAMILIAR: Users,
+                    VIVIENDA: House,
+                    ACADEMICO: GraduationCap,
+                    LABORAL: BriefcaseBusiness,
+                    REFERENCIAS: ClipboardList,
+                    ECONOMICA: Landmark,
+                    PATRIMONIO: Landmark,
+                    DOCUMENTOS: FileText,
+                    ANEXOS_FOTOGRAFICOS: Camera,
+                    LISTAS_RESTRICTIVAS: Search,
+                  };
+                  // Estado basado en llenado del candidato (fill_candidato)
+                  const FILL_CFG = {
+                    lleno:    { label: "Llenado OK",   dot: "#38bdf8", bar: "linear-gradient(90deg,#1d4ed8,#38bdf8)", bg: "rgba(56,189,248,.08)",   brd: "rgba(56,189,248,.22)" },
+                    vacio:    { label: "Sin llenar",   dot: "#f87171", bar: "#f87171",                               bg: "rgba(248,113,113,.06)",  brd: "rgba(248,113,113,.18)" },
+                    analista: { label: "Equipo",       dot: "#a78bfa", bar: "#a78bfa",                               bg: "rgba(167,139,250,.06)",  brd: "rgba(167,139,250,.18)" },
+                  };
+                  // Overlay de validacion encima
+                  const VALID_DOT = { validado: "#34d399", hallazgo: "#fbbf24", revision: "#60a5fa" };
 
-                <div>
-                  <h4 className="font-medium mb-1">Secciones</h4>
-                  <ul className="text-sm space-y-1">
-                    {Object.entries(sel.secciones || {}).map(([sec, info]) => (
-                      <li
-                        key={sec}
-                        className="border border-white/10 bg-white/5 rounded p-2 flex items-center justify-between"
-                      >
-                        <span className="capitalize">{sec.replaceAll("_", " ").toLowerCase()}</span>
-                        <span className="text-white/70">✓ {info.validados} · ⚠️ {info.hallazgos}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                  const entries = Object.entries(sel.secciones || {});
+                  return (
+                    <div>
+                      <div className="text-xs text-white/50 uppercase tracking-wider mb-2 font-semibold">
+                        Modulos - llenado por el candidato
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {entries.map(([sec, info]) => {
+                          const fc = info.fill_candidato;  // true | false | null
+                          const cfgKey = fc === null ? "analista" : fc ? "lleno" : "vacio";
+                          const cfg = FILL_CFG[cfgKey];
+                          const Icon = ICONS[sec] || Folder;
+
+                          // Indicador de validacion del analista
+                          const analBadge = info.validados > 0
+                            ? { color: VALID_DOT.validado, txt: `OK ${info.validados}` }
+                            : info.hallazgos > 0
+                            ? { color: VALID_DOT.hallazgo, txt: `ALR ${info.hallazgos}` }
+                            : null;
+
+                          return (
+                            <button
+                              key={sec}
+                              onClick={() => setModalSeccion({ nombre: sec, info })}
+                              className="text-left rounded-xl p-3 transition hover:scale-[1.02] active:scale-[.98] cursor-pointer"
+                              style={{ background: cfg.bg, border: `1px solid ${cfg.brd}` }}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <Icon className="h-4 w-4 text-white/85" />
+                                <div className="flex items-center gap-1">
+                                  {analBadge && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                                      style={{ color: analBadge.color, background: `${analBadge.color}18` }}>
+                                      {analBadge.txt}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full"
+                                    style={{ color: cfg.dot, background: `${cfg.dot}18` }}>
+                                    {cfg.label}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-xs font-semibold text-white/90 capitalize leading-tight mb-2">
+                                {sec.replaceAll("_", " ").toLowerCase()}
+                              </div>
+                              {/* Barra candidato: 100% si lleno, 0% si no */}
+                              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500"
+                                  style={{ width: fc === null ? "100%" : fc ? "100%" : "0%", background: cfg.bar, opacity: fc === null ? 0.4 : 1 }}/>
+                              </div>
+                              <div className="text-[10px] text-white/35 mt-1">
+                                {fc === null ? "Modulo de verificacion interna" : fc ? "El candidato ingreso informacion" : "El candidato aun no ha llenado"}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex items-center gap-2 pt-1">
+                  <select
+                    value={reportStyle}
+                    onChange={(e) => setReportStyle(e.target.value)}
+                    className="rounded-xl border border-white/20 bg-white/10 px-2.5 py-1.5 text-sm text-white outline-none"
+                    title="Estilo del reporte"
+                  >
+                    {REPORT_STYLE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value} className="bg-slate-900 text-white">
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+
                   <button
-                    onClick={() => descargarPDFServidor(sel.estudio_id)}
+                    onClick={() => descargarPDFServidor(sel.estudio_id, reportStyle)}
                     disabled={generating}
                     className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm text-white ${
                       generating ? "bg-slate-600 cursor-wait" : "bg-indigo-600 hover:bg-indigo-500"
                     }`}
-                    title={generating ? "Generando…" : "Descargar PDF"}
+                    title={generating ? "Generando..." : "Descargar PDF"}
                   >
                     <Download className="h-4 w-4" />
-                    {generating ? "Generando…" : "Descargar PDF"}
+                    {generating ? "Generando..." : "Descargar PDF"}
                   </button>
 
                   <span className="text-sm text-white/80">
-                    Autorización: {" "}
+                    Autorizacion: {" "}
                     <b className={sel.autorizacion?.firmada ? "text-emerald-300" : "text-amber-300"}>
                       {sel.autorizacion?.firmada ? "Firmada" : "Pendiente"}
                     </b>
@@ -1157,21 +1307,176 @@ export default function ClienteDashboard() {
           </div>
         </div>
       </div>
+      {/* Modal de avances de seccion */}
+      {modalSeccion && (() => {
+        const info = modalSeccion.info;
+        const total = (info.estado || []).length;
+        const pct = total > 0 ? Math.round((info.validados / total) * 100) : 0;
+        const circ = 2 * Math.PI * 48;
+        const filled = (pct / 100) * circ;
+
+        // Estado del llenado candidato
+        const fc = info.fill_candidato;  // true | false | null
+        const FILL_ST = fc === null
+          ? { label: "Verificacion interna", color: "#a78bfa", bg: "rgba(167,139,250,.12)", brd: "rgba(167,139,250,.3)", msg: "Este modulo es verificado directamente por nuestro equipo de analistas." }
+          : fc
+          ? { label: "Candidato lleno OK",   color: "#38bdf8", bg: "rgba(56,189,248,.12)",  brd: "rgba(56,189,248,.3)",  msg: "El candidato ya ingreso informacion en este modulo." }
+          : { label: "Sin informacion",      color: "#f87171", bg: "rgba(248,113,113,.12)", brd: "rgba(248,113,113,.3)", msg: "El candidato aun no ha completado este modulo. Se espera su informacion." };
+
+        // Estado de validacion analista
+        const st = info.hallazgos > 0 ? "hallazgo"
+          : total > 0 && info.validados === total ? "completo"
+          : info.validados > 0 ? "parcial"
+          : "pendiente";
+
+        const STATUS = {
+          completo:  { label: "Analista valido",      color: "#34d399", bg: "rgba(52,211,153,.12)",  brd: "rgba(52,211,153,.3)" },
+          hallazgo:  { label: "Con hallazgos",        color: "#fbbf24", bg: "rgba(251,191,36,.10)",  brd: "rgba(251,191,36,.3)" },
+          parcial:   { label: "En revision",          color: "#60a5fa", bg: "rgba(96,165,250,.10)",  brd: "rgba(96,165,250,.3)" },
+          pendiente: { label: "Pendiente de revision",color: "#94a3b8", bg: "rgba(148,163,184,.08)", brd: "rgba(148,163,184,.2)" },
+        }[st];
+
+        const ICONS = {
+          BIOGRAFICOS: UserRound,
+          INFO_FAMILIAR: Users,
+          VIVIENDA: House,
+          ACADEMICO: GraduationCap,
+          LABORAL: BriefcaseBusiness,
+          REFERENCIAS: ClipboardList,
+          ECONOMICA: Landmark,
+          PATRIMONIO: Landmark,
+          DOCUMENTOS: FileText,
+          ANEXOS_FOTOGRAFICOS: Camera,
+          LISTAS_RESTRICTIVAS: Search,
+        };
+        const Icon = ICONS[modalSeccion.nombre] || Folder;
+
+        return (
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,.75)", backdropFilter: "blur(6px)" }}
+            onClick={(e) => e.target === e.currentTarget && setModalSeccion(null)}
+          >
+            <div className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl"
+              style={{ background: "linear-gradient(160deg,#0d1829 0%,#0f2040 100%)", border: "1px solid rgba(56,189,248,.18)" }}>
+
+              {/* Franja superior degradada */}
+              <div style={{ height: 4, background: "linear-gradient(90deg,#1d4ed8,#38bdf8,#818cf8)" }}/>
+
+              {/* Header */}
+              <div className="flex items-center gap-3 px-6 pt-5 pb-4">
+                <div className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-2xl"
+                  style={{ background: "linear-gradient(135deg,#1d4ed820,#38bdf820)", border: "1px solid rgba(56,189,248,.2)" }}>
+                  <Icon className="h-6 w-6 text-white/85" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] text-white/40 uppercase tracking-widest">Modulo del estudio</div>
+                  <div className="text-base font-bold text-white capitalize leading-tight">
+                    {modalSeccion.nombre.replaceAll("_", " ").toLowerCase()}
+                  </div>
+                </div>
+                <button onClick={() => setModalSeccion(null)}
+                  className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition text-lg leading-none">
+                  X
+                </button>
+              </div>
+
+              {/* Indicador principal: llenado candidato */}
+              <div className="flex flex-col items-center pb-1">
+                <svg width="130" height="130" viewBox="0 0 110 110">
+                  <defs>
+                    <linearGradient id="mGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#1d4ed8"/>
+                      <stop offset="100%" stopColor="#38bdf8"/>
+                    </linearGradient>
+                  </defs>
+                  <circle cx="55" cy="55" r="48" fill="none" stroke="rgba(255,255,255,.05)" strokeWidth="10"/>
+                  <circle cx="55" cy="55" r="48" fill="none" stroke={FILL_ST.color} strokeWidth="10"
+                    strokeDasharray={fc === null ? `${circ} ${circ}` : fc ? `${circ} ${circ}` : `0 ${circ}`}
+                    strokeLinecap="round" opacity={fc === null ? 0.3 : 1}
+                    style={{ transform: "rotate(-90deg)", transformOrigin: "55px 55px", transition: "stroke-dasharray .7s ease" }}/>
+                  {/* Anillo interior: validacion analista */}
+                  <circle cx="55" cy="55" r="34" fill="none" stroke="rgba(255,255,255,.04)" strokeWidth="7"/>
+                  <circle cx="55" cy="55" r="34" fill="none" stroke={STATUS.color} strokeWidth="7"
+                    strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+                    style={{ transform: "rotate(-90deg)", transformOrigin: "55px 55px" }}/>
+                  <text x="55" y="50" textAnchor="middle" fill={FILL_ST.color} fontSize="20" fontWeight="900">
+                    {fc === null ? "N/A" : fc ? "OK" : "-"}
+                  </text>
+                  <text x="55" y="65" textAnchor="middle" fill="rgba(255,255,255,.35)" fontSize="8" fontWeight="600" letterSpacing="0.5">CANDIDATO</text>
+                </svg>
+                <div className="text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full -mt-1 mb-1"
+                  style={{ background: FILL_ST.bg, border: `1px solid ${FILL_ST.brd}`, color: FILL_ST.color }}>
+                  {FILL_ST.label}
+                </div>
+                <div className="text-[10px] px-2 py-0.5 rounded-full mb-3"
+                  style={{ background: STATUS.bg, border: `1px solid ${STATUS.brd}`, color: STATUS.color }}>
+                  Analista: {STATUS.label}
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-2 px-6 mb-4">
+                {[
+                  { label: "Total", val: total, color: "#38bdf8", bg: "rgba(56,189,248,.08)", brd: "rgba(56,189,248,.2)" },
+                  { label: "Validados", val: info.validados, color: "#34d399", bg: "rgba(52,211,153,.08)", brd: "rgba(52,211,153,.2)" },
+                  { label: "Hallazgos", val: info.hallazgos, color: "#fbbf24", bg: "rgba(251,191,36,.08)", brd: "rgba(251,191,36,.2)" },
+                ].map(({ label, val, color, bg, brd }) => (
+                  <div key={label} className="rounded-xl py-3 text-center" style={{ background: bg, border: `1px solid ${brd}` }}>
+                    <div className="text-xl font-black" style={{ color }}>{val}</div>
+                    <div className="text-[10px] text-white/40 uppercase tracking-wide mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Barra validacion analista */}
+              <div className="px-6 mb-4">
+                <div className="flex justify-between text-[10px] text-white/40 mb-1">
+                  <span>Validado por el equipo</span>
+                  <span style={{ color: STATUS.color }}>{pct}%</span>
+                </div>
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,.06)" }}>
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${pct}%`, background: `linear-gradient(90deg,${STATUS.color}80,${STATUS.color})` }}/>
+                </div>
+              </div>
+
+              {/* Mensaje de estado del candidato */}
+              <div className="mx-6 mb-5 rounded-xl p-3 text-xs leading-relaxed"
+                style={{ background: FILL_ST.bg, border: `1px solid ${FILL_ST.brd}`, color: FILL_ST.color }}>
+                {FILL_ST.msg}
+              </div>
+
+              {/* Boton cerrar */}
+              <div className="px-6 pb-6">
+                <button onClick={() => setModalSeccion(null)}
+                  className="w-full py-3 rounded-xl text-white font-bold text-sm tracking-wide transition hover:opacity-90 active:scale-[.98]"
+                  style={{ background: "linear-gradient(90deg,#1d4ed8,#0ea5e9)" }}>
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
-// Declaración de itemTipos al inicio del componente
+// Declaracion de itemTipos al inicio del componente
 const itemTipos = [
-  { key: "BIOGRAFICOS", label: "Biográficos" },
+  { key: "BIOGRAFICOS", label: "Biograficos" },
   { key: "INFO_FAMILIAR", label: "Info Familiar" },
   { key: "VIVIENDA", label: "Vivienda" },
-  { key: "ACADEMICO", label: "Académico" },
+  { key: "ACADEMICO", label: "Academico" },
   { key: "LABORAL", label: "Laboral" },
   { key: "REFERENCIAS", label: "Referencias" },
-  { key: "ECONOMICO", label: "Económica" },
+  { key: "ECONOMICO", label: "Economica" },
   { key: "PATRIMONIO", label: "Patrimonio" },
   { key: "DOCUMENTOS", label: "Documentos" },
-  { key: "ANEXOS_FOTOGRAFICOS", label: "Anexos fotográficos" },
+  { key: "ANEXOS_FOTOGRAFICOS", label: "Anexos fotograficos" },
   { key: "LISTAS_RESTRICTIVAS", label: "Listas restrictivas" },
 ];
+
+
+
