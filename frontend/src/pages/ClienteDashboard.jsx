@@ -211,34 +211,36 @@ export default function ClienteDashboard() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.candidato.email))
         return setMsg("El correo del candidato no es válido.");
 
-      // --- VERIFICACIÓN DE CÉDULA Y EMPRESA ---
-      try {
-        const { data: estudiosExist } = await api.get(`/api/estudios/?cedula=${payload.candidato.cedula}`);
-        let existeMismaEmpresa = false;
-        let empresasOtras = [];
-        if (Array.isArray(estudiosExist)) {
-          estudiosExist.forEach(est => {
-            let empresaEst = est.empresa || est.empresa_nombre || est.solicitud?.empresa || est.solicitud?.empresa_nombre || "";
-            let empresaActual = me?.empresa_nombre || me?.empresa || "";
-            if (empresaEst && typeof empresaEst === 'object') empresaEst = empresaEst.nombre || empresaEst.id || JSON.stringify(empresaEst);
-            if (empresaActual && typeof empresaActual === 'object') empresaActual = empresaActual.nombre || empresaActual.id || JSON.stringify(empresaActual);
-            empresaEst = String(empresaEst).toLowerCase().trim();
-            empresaActual = String(empresaActual).toLowerCase().trim();
-            if (empresaEst && empresaEst === empresaActual) {
-              existeMismaEmpresa = true;
-            } else if (empresaEst) {
-              empresasOtras.push(empresaEst);
-            }
-          });
+      // --- VERIFICACIÓN DE CÉDULA Y EMPRESA (omitir alertas si políticas ya están configuradas) ---
+      if (!politicasBloqueadas) {
+        try {
+          const { data: estudiosExist } = await api.get(`/api/estudios/?cedula=${payload.candidato.cedula}`);
+          let existeMismaEmpresa = false;
+          let empresasOtras = [];
+          if (Array.isArray(estudiosExist)) {
+            estudiosExist.forEach(est => {
+              let empresaEst = est.empresa || est.empresa_nombre || est.solicitud?.empresa || est.solicitud?.empresa_nombre || "";
+              let empresaActual = me?.empresa_nombre || me?.empresa || "";
+              if (empresaEst && typeof empresaEst === 'object') empresaEst = empresaEst.nombre || empresaEst.id || JSON.stringify(empresaEst);
+              if (empresaActual && typeof empresaActual === 'object') empresaActual = empresaActual.nombre || empresaActual.id || JSON.stringify(empresaActual);
+              empresaEst = String(empresaEst).toLowerCase().trim();
+              empresaActual = String(empresaActual).toLowerCase().trim();
+              if (empresaEst && empresaEst === empresaActual) {
+                existeMismaEmpresa = true;
+              } else if (empresaEst) {
+                empresasOtras.push(empresaEst);
+              }
+            });
+          }
+          if (existeMismaEmpresa) {
+            toast.info("Atenci�n: esta c�dula ya tiene estudio(s) en tu empresa. Se crear� un nuevo estudio con historial relevante.");
+          }
+          if (empresasOtras.length > 0) {
+            toast.info(`Atención: Ya existe(n) estudio(s) con esta cédula en otra(s) empresa(s): ${empresasOtras.join(", ")}`);
+          }
+        } catch {
+          toast.info("No se pudo verificar si la cédula ya existe en otros estudios. Continúa bajo tu responsabilidad.");
         }
-        if (existeMismaEmpresa) {
-          toast.info("Atenci�n: esta c�dula ya tiene estudio(s) en tu empresa. Se crear� un nuevo estudio con historial relevante.");
-        }
-        if (empresasOtras.length > 0) {
-          toast.info(`Atención: Ya existe(n) estudio(s) con esta cédula en otra(s) empresa(s): ${empresasOtras.join(", ")}`);
-        }
-      } catch {
-        toast.info("No se pudo verificar si la cédula ya existe en otros estudios. Continúa bajo tu responsabilidad.");
       }
 
       // --- CREACIÓN ---
@@ -324,6 +326,32 @@ export default function ClienteDashboard() {
     },
     [generating, reportStyle]
   );
+
+  /* ======================= Descargar PDF de consentimientos firmados ======================= */
+  const CONSENT_LABEL = {
+    GENERAL:   "Autorización tratamiento de datos",
+    CENTRALES: "Consulta centrales de riesgo",
+    ACADEMICO: "Verificación académica",
+  };
+
+  const descargarConsentPdf = useCallback(async (estudioId, tipo) => {
+    const url = `/api/estudios/${estudioId}/consentimientos/pdf/${tipo ? `?tipo=${tipo}` : ""}`;
+    const filename = tipo
+      ? `Consentimiento_${tipo}_Estudio${estudioId}.pdf`
+      : `Consentimientos_Estudio${estudioId}.pdf`;
+    try {
+      const { data, headers } = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([data], { type: headers?.["content-type"] || "application/pdf" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      toast.error("No se pudo descargar el documento de consentimiento.");
+    }
+  }, [toast]);
 
   /* ---------- Derivados ---------- */
   const empresaNombre = useMemo(
@@ -539,6 +567,13 @@ export default function ClienteDashboard() {
     } catch (e) {}
     setLoadingPoliticas(false);
   }, [me]);
+
+  // Cargar estado de políticas al iniciar para saber si están bloqueadas sin abrir el modal
+  useEffect(() => {
+    if (me?.rol === "CLIENTE" && me?.empresa_id) {
+      syncPoliticas();
+    }
+  }, [me, syncPoliticas]);
 
   // Abrir modal de políticas
   const openPoliticasModal = () => {
@@ -1170,6 +1205,57 @@ export default function ClienteDashboard() {
                   );
                 })()}
 
+                {/* Formatos firmados por el candidato */}
+                {(() => {
+                  const cons = sel?.consentimientos || [];
+                  const firmados = cons.filter((c) => c.aceptado);
+                  if (!firmados.length) return null;
+                  return (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <div className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-2">
+                        Formatos firmados por el candidato
+                      </div>
+                      <div className="space-y-2">
+                        {firmados.map((c) => (
+                          <div key={c.id} className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="text-xs text-white/90">
+                                {CONSENT_LABEL[c.tipo] || c.tipo}
+                              </div>
+                              {c.firmado_at && (
+                                <div className="text-[11px] text-white/40">
+                                  {new Date(c.firmado_at).toLocaleDateString()}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => descargarConsentPdf(sel.estudio_id, c.tipo)}
+                              className="flex items-center gap-1 rounded-lg border border-white/15 hover:bg-white/10 px-2 py-1 text-[11px] text-white/80 transition shrink-0"
+                              title="Descargar formato firmado"
+                            >
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                              </svg>
+                              PDF
+                            </button>
+                          </div>
+                        ))}
+                        {firmados.length > 1 && (
+                          <button
+                            onClick={() => descargarConsentPdf(sel.estudio_id, "")}
+                            className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600/70 hover:bg-blue-600/90 px-3 py-1.5 text-xs font-semibold text-white transition"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                            </svg>
+                            Descargar todos los formatos
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -1302,6 +1388,37 @@ export default function ClienteDashboard() {
                     </b>
                   </span>
                 </div>
+
+                {/* Formatos firmados — botones de descarga */}
+                {(sel?.consentimientos || []).filter((c) => c.aceptado).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <span className="text-xs text-white/50 mr-1">Formatos firmados:</span>
+                    {(sel.consentimientos || []).filter((c) => c.aceptado).map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => descargarConsentPdf(sel.estudio_id, c.tipo)}
+                        className="flex items-center gap-1 rounded-lg border border-white/15 hover:bg-white/10 px-2 py-1 text-[11px] text-white/80 transition"
+                        title={`Descargar: ${CONSENT_LABEL[c.tipo] || c.tipo}`}
+                      >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                        </svg>
+                        {CONSENT_LABEL[c.tipo] || c.tipo}
+                      </button>
+                    ))}
+                    {(sel.consentimientos || []).filter((c) => c.aceptado).length > 1 && (
+                      <button
+                        onClick={() => descargarConsentPdf(sel.estudio_id, "")}
+                        className="flex items-center gap-1 rounded-lg bg-blue-600/60 hover:bg-blue-600/80 px-2 py-1 text-[11px] font-semibold text-white transition"
+                      >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                        </svg>
+                        Todos
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

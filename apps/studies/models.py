@@ -158,6 +158,23 @@ class Estudio(models.Model):
         self.save(update_fields=["estado", "observacion_analista", "decision_final", "finalizado_at", "updated_at"])
 
 
+class DisponibilidadReunionCandidato(models.Model):
+    """Disponibilidad que el candidato propone para su reunión virtual."""
+    estudio = models.OneToOneField(
+        "studies.Estudio", on_delete=models.CASCADE,
+        related_name="disponibilidad_reunion"
+    )
+    fecha_propuesta = models.DateField(null=True, blank=True)
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fin = models.TimeField(null=True, blank=True)
+    nota = models.TextField(blank=True, default="")
+    creada_at = models.DateTimeField(auto_now_add=True)
+    actualizada_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Disponibilidad reunión estudio #{self.estudio_id}"
+
+
 class VisitaVirtualEstado(models.TextChoices):
     ACTIVA = "ACTIVA", "Activa"
     FINALIZADA = "FINALIZADA", "Finalizada"
@@ -290,8 +307,9 @@ class EstudioConsentimiento(models.Model):
     aceptado = models.BooleanField(default=False)
     firmado_at = models.DateTimeField(null=True, blank=True)
 
-    firma = models.FileField(upload_to="firmas/", null=True, blank=True)
-    firma_imagen = models.FileField(upload_to="firmas/", null=True, blank=True)
+    firma = models.FileField(upload_to="firmas/", null=True, blank=True)           # combinada (trazo + imagen)
+    firma_draw = models.FileField(upload_to="firmas/", null=True, blank=True)      # solo trazo digital
+    firma_imagen = models.FileField(upload_to="firmas/", null=True, blank=True)    # solo imagen subida
 
     ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(null=True, blank=True)

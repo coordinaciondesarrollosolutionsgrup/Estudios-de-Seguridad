@@ -529,3 +529,27 @@ class AdminAsignarAnalistaView(APIView):
         est.solicitud.analista = analista
         est.solicitud.save(update_fields=["analista"])
         return Response({"detail": f"Analista {analista.username} asignado al estudio #{est.id}."})
+
+
+# =============================================================================
+# SUPER ADMIN: Desbloquear políticas de una empresa
+# =============================================================================
+
+class AdminDesbloquearPoliticasView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, empresa_id):
+        from apps.studies.models import ClientePoliticaConfiguracion
+        try:
+            empresa = Empresa.objects.get(pk=empresa_id)
+        except Empresa.DoesNotExist:
+            return Response({"detail": "Empresa no encontrada."}, status=404)
+
+        actualizadas = ClientePoliticaConfiguracion.objects.filter(
+            empresa=empresa, bloqueado=True
+        ).update(bloqueado=False)
+
+        return Response({
+            "detail": f"Políticas desbloqueadas para {empresa.nombre}.",
+            "actualizadas": actualizadas,
+        })

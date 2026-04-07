@@ -11,6 +11,7 @@ from .views import (
     AdminEmpresaDetalleView,
     AdminMetricasView,
     AdminAsignarAnalistaView,
+    AdminDesbloquearPoliticasView,
 )
 
 urlpatterns = [
@@ -27,4 +28,5 @@ urlpatterns = [
     path("admin/empresas/<int:pk>/", AdminEmpresaDetalleView.as_view(), name="admin_empresa_detalle"),
     path("admin/metricas/", AdminMetricasView.as_view(), name="admin_metricas"),
     path("admin/estudios/<int:estudio_id>/asignar-analista/", AdminAsignarAnalistaView.as_view(), name="admin_asignar_analista"),
+    path("admin/empresas/<int:empresa_id>/desbloquear-politicas/", AdminDesbloquearPoliticasView.as_view(), name="admin_desbloquear_politicas"),
 ]

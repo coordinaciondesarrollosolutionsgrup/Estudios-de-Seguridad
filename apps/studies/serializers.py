@@ -17,7 +17,8 @@ from .models import (
     EvaluacionTrato,
     EstudioReferencia,
     ReferenciaPersonal,
-    Patrimonio
+    Patrimonio,
+    DisponibilidadReunionCandidato,
 )
 from apps.candidates.models import Candidato
 from apps.accounts.models import Empresa
@@ -123,11 +124,19 @@ class SolicitudCreateSerializer(serializers.ModelSerializer):
         ]
         excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=empresa, excluido=True)
         excluidos_dict = {}
+        excluded_modules = set()
         for e in excluidos:
-            excluidos_dict.setdefault(e.item.upper(), set()).add(e.subitem.upper())
+            item_key = (e.item or "").upper().strip()
+            if item_key == "ECONOMICO":
+                item_key = "ECONOMICA"
+            sub_key = (e.subitem or "").upper().strip()
+            excluidos_dict.setdefault(item_key, set()).add(sub_key)
+            # Marca de exclusión de módulo completo (configurada desde "Arma tu estudio")
+            if sub_key == "__ITEM__":
+                excluded_modules.add(item_key)
 
         for item in ALL_ITEMS:
-            if item in excluidos_dict and len(excluidos_dict[item]) > 10:
+            if item in excluded_modules:
                 continue
             EstudioItem.objects.create(estudio=estudio, tipo=item)
 
@@ -648,7 +657,7 @@ class ClienteConfiguracionFormularioSerializer(serializers.ModelSerializer):
 
 
 # Serializer para polÃ­ticas configurables del cliente
-from .models import ClientePoliticaConfiguracion, HistorialConfiguracion
+from .models import ClientePoliticaConfiguracion, HistorialConfiguracion, DisponibilidadReunionCandidato
 
 class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -669,4 +678,14 @@ class HistorialConfiguracionSerializer(serializers.ModelSerializer):
 
     def get_usuario_nombre(self, obj):
         return obj.usuario.username if obj.usuario else 'desconocido'
+
+
+class DisponibilidadReunionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DisponibilidadReunionCandidato
+        fields = [
+            'id', 'estudio', 'fecha_propuesta', 'hora_inicio',
+            'hora_fin', 'nota', 'creada_at', 'actualizada_at',
+        ]
+        read_only_fields = ['id', 'estudio', 'creada_at', 'actualizada_at']
 

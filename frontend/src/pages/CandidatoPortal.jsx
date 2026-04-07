@@ -2,6 +2,7 @@
 import { Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/axios";
+import { getDisponibilidadReunion, saveDisponibilidadReunion } from "../api/studies";
 import ProgressBar from "../components/ProgressBar";
 import ConsentWizard from "../components/ConsentWizard";
 import ModulesNav from "../components/ModulesNav";
@@ -24,6 +25,13 @@ export default function CandidatoPortal() {
   const [geoBusy, setGeoBusy] = useState(false);
   const geoWatchRef = useRef(null);
   const lastGeoPushRef = useRef(0);
+  const [showGeoConsent, setShowGeoConsent] = useState(false);
+
+  // Disponibilidad reunión
+  const [disponibilidad, setDisponibilidad] = useState(null);
+  const [dispForm, setDispForm] = useState({ fecha_propuesta: "", hora_inicio: "", hora_fin: "", nota: "" });
+  const [dispBusy, setDispBusy] = useState(false);
+  const [dispMsg, setDispMsg] = useState("");
 
   // “pin” local para que el progreso no baje cuando el estudio está congelado
   const progressPinRef = useRef(null);
@@ -60,6 +68,70 @@ export default function CandidatoPortal() {
     setGeoSharing(false);
   };
 
+  const confirmGeoConsent = async () => {
+    setShowGeoConsent(false);
+    if (!estudio?.id) return;
+    setGeoBusy(true);
+    try {
+      await api.post(`/api/estudios/${estudio.id}/visita-virtual/consentir/`);
+      await loadVisitaVirtual(estudio.id);
+      lastGeoPushRef.current = 0;
+      geoWatchRef.current = navigator.geolocation.watchPosition(
+        async (position) => {
+          const now = Date.now();
+          if (now - lastGeoPushRef.current < 10000) return;
+          lastGeoPushRef.current = now;
+          try {
+            await api.post(`/api/estudios/${estudio.id}/visita-virtual/ubicacion/`, {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            });
+            await loadVisitaVirtual(estudio.id);
+          } catch { /* silencioso */ }
+        },
+        () => {
+          alert("No se pudo obtener tu ubicación. Verifica permisos del navegador.");
+          stopGeoShare();
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+      );
+      setGeoSharing(true);
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
+  const loadDisponibilidad = async (estudioId) => {
+    try {
+      const { data } = await getDisponibilidadReunion(estudioId);
+      setDisponibilidad(data);
+      setDispForm({
+        fecha_propuesta: data.fecha_propuesta || "",
+        hora_inicio: data.hora_inicio || "",
+        hora_fin: data.hora_fin || "",
+        nota: data.nota || "",
+      });
+    } catch {
+      // no hay registro aún, dejar form vacío
+    }
+  };
+
+  const guardarDisponibilidad = async () => {
+    if (!estudio?.id) return;
+    setDispBusy(true);
+    setDispMsg("");
+    try {
+      await saveDisponibilidadReunion(estudio.id, dispForm);
+      setDispMsg("Disponibilidad guardada.");
+      await loadDisponibilidad(estudio.id);
+    } catch {
+      setDispMsg("Error al guardar. Intenta de nuevo.");
+    } finally {
+      setDispBusy(false);
+    }
+  };
+
   const loadVisitaVirtual = async (estudioId) => {
     try {
       const { data } = await api.get(`/api/estudios/${estudioId}/visita-virtual/`);
@@ -85,11 +157,9 @@ export default function CandidatoPortal() {
     setGeoBusy(true);
     try {
       if (!visitaVirtual?.consentida_por_candidato) {
-        const ok = confirm(
-          "¿Aceptas compartir tu ubicación durante esta visita virtual para verificación de seguridad?"
-        );
-        if (!ok) return;
-        await api.post(`/api/estudios/${estudio.id}/visita-virtual/consentir/`);
+        setGeoBusy(false);
+        setShowGeoConsent(true);
+        return;
       }
 
       lastGeoPushRef.current = 0;
@@ -140,6 +210,7 @@ export default function CandidatoPortal() {
       const { data: full } = await api.get(`/api/estudios/${first.id}/`);
       setEstudio(full);
       await loadVisitaVirtual(full.id);
+      await loadDisponibilidad(full.id);
 
       // fijar pin si corresponde
       const s = (full.estado || "").toUpperCase();
@@ -345,12 +416,74 @@ export default function CandidatoPortal() {
             </div>
           </div>
 
+          {/* Disponibilidad para reunión virtual */}
+          {!loading && estudio && !isClosed && (
+            <div className="mx-4 mb-3">
+              <div className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-4 text-white">
+                <div className="font-semibold text-sm mb-3 text-indigo-200">
+                  Indica tu disponibilidad para la reunión virtual
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs text-white/60 mb-1">Fecha</label>
+                    <input
+                      type="date"
+                      value={dispForm.fecha_propuesta}
+                      onChange={(e) => setDispForm((f) => ({ ...f, fecha_propuesta: e.target.value }))}
+                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/60 mb-1">Hora inicio</label>
+                    <input
+                      type="time"
+                      value={dispForm.hora_inicio}
+                      onChange={(e) => setDispForm((f) => ({ ...f, hora_inicio: e.target.value }))}
+                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/60 mb-1">Hora fin</label>
+                    <input
+                      type="time"
+                      value={dispForm.hora_fin}
+                      onChange={(e) => setDispForm((f) => ({ ...f, hora_fin: e.target.value }))}
+                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
+                    />
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="block text-xs text-white/60 mb-1">Nota (opcional)</label>
+                  <textarea
+                    rows={2}
+                    value={dispForm.nota}
+                    onChange={(e) => setDispForm((f) => ({ ...f, nota: e.target.value }))}
+                    placeholder="Ej: solo disponible en la mañana..."
+                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50 resize-none"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={guardarDisponibilidad}
+                    disabled={dispBusy}
+                    className="px-4 py-1.5 rounded-full text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-60 transition"
+                  >
+                    {dispBusy ? "Guardando..." : "Guardar disponibilidad"}
+                  </button>
+                  {dispMsg && (
+                    <span className="text-xs text-indigo-200">{dispMsg}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {!loading && estudio && (visitaVirtual?.exists || false) && (
             <div className="mx-4">
               <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-emerald-100">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-sm">Visita virtual solicitada por el analista</div>
+                    <div className="font-semibold text-sm">Reunión virtual solicitada por el analista</div>
                     <div className="text-xs text-emerald-100/80">
                       Estado: {visitaVirtual?.estado || "NO_INICIADA"}
                     </div>
@@ -465,6 +598,32 @@ export default function CandidatoPortal() {
         />
       )}
 
+      {/* Modal de consentimiento de geolocalización */}
+      {showGeoConsent && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+          <div className="max-w-sm w-full rounded-2xl border border-white/15 bg-white/10 backdrop-blur-md p-5 text-white shadow-2xl">
+            <h3 className="text-base font-semibold mb-2">Compartir ubicación</h3>
+            <p className="text-sm text-white/80 mb-4">
+              ¿Aceptas compartir tu ubicación durante esta reunión virtual para verificación de seguridad?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowGeoConsent(false)}
+                className="px-3 py-1.5 rounded-full text-sm border border-white/20 hover:bg-white/10"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmGeoConsent}
+                className="px-3 py-1.5 rounded-full text-sm font-semibold bg-emerald-600/80 hover:bg-emerald-600"
+              >
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de cierre + redirección al login (solo si NO hay evaluación pendiente) */}
       {!showEval && showClosed && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
@@ -496,3 +655,4 @@ export default function CandidatoPortal() {
     </div>
   );
 }
+

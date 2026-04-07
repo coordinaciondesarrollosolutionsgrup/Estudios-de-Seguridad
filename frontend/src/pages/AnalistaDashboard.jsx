@@ -189,8 +189,10 @@ export default function AnalistaDashboard() {
   const [visitaVirtual, setVisitaVirtual] = useState(null);
   const [visitaBusy, setVisitaBusy] = useState(false);
   const [meetingUrlDraft, setMeetingUrlDraft] = useState("");
+  const [evaluacion, setEvaluacion] = useState(null);
+  const [disponibilidadReunion, setDisponibilidadReunion] = useState(null);
 
-  // “Ampliar detalle”
+  // "Ampliar detalle"
   const [wide, setWide] = useState(false);
 
   // Centrales
@@ -431,6 +433,9 @@ export default function AnalistaDashboard() {
       await loadReferencias(id);
       await loadVisitaVirtual(id);
       loadResumen(id); // no-await: carga en paralelo sin bloquear
+      // Cargar evaluacion y disponibilidad en paralelo (sin bloquear)
+      api.get(`/api/estudios/${id}/evaluacion/`).then((r) => setEvaluacion(r.data)).catch(() => setEvaluacion(null));
+      api.get(`/api/estudios/${id}/disponibilidad-reunion/`).then((r) => setDisponibilidadReunion(r.data)).catch(() => setDisponibilidadReunion(null));
       setTab("CANDIDATO");
     } catch {
       setSel(null);
@@ -438,6 +443,8 @@ export default function AnalistaDashboard() {
       setRefs({ laborales: [], personales: [] });
       setResumen(null);
       setVisitaVirtual(null);
+      setEvaluacion(null);
+      setDisponibilidadReunion(null);
     }
   };
 
@@ -629,9 +636,36 @@ export default function AnalistaDashboard() {
     </div>
   );
 
+  const CONSENT_LABEL = {
+    GENERAL:   "Autorización tratamiento de datos",
+    CENTRALES: "Consulta centrales de riesgo",
+    ACADEMICO: "Verificación académica",
+  };
+
+  const descargarConsentPdf = async (tipo) => {
+    if (!sel?.id) return;
+    const url = `/api/estudios/${sel.id}/consentimientos/pdf/${tipo ? `?tipo=${tipo}` : ""}`;
+    const filename = tipo
+      ? `Consentimiento_${tipo}_Estudio${sel.id}.pdf`
+      : `Consentimientos_Estudio${sel.id}.pdf`;
+    try {
+      const { data, headers } = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([data], { type: headers?.["content-type"] || "application/pdf" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      toast.error("No se pudo descargar el documento.");
+    }
+  };
+
   const ConsentimientosMini = () => {
     const cons = sel?.consentimientos || [];
     if (!cons.length) return <div className="text-sm text-white/60">Sin registros</div>;
+    const firmados = cons.filter((c) => c.aceptado);
 
     const pick = (obj, keys) => {
       for (let i = 0; i < keys.length; i++) {
@@ -674,6 +708,19 @@ export default function AnalistaDashboard() {
 
     return (
       <div className="space-y-3">
+        {/* Botón descargar todos */}
+        {firmados.length > 0 && (
+          <button
+            onClick={() => descargarConsentPdf("")}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            Descargar todos los formatos firmados
+          </button>
+        )}
+
         {cons.map((c) => {
           const combinedSrc = pick(c, ["firma_url", "firma_combinada_url"]);
           const drawnSrc = pick(c, [
@@ -693,10 +740,32 @@ export default function AnalistaDashboard() {
 
           return (
             <div key={c.id} className="rounded-xl border border-white/10 bg-white/5 p-2">
-              <div className="text-xs font-semibold">
-                {String(c.tipo || "").toUpperCase()} · {c.aceptado ? "Aceptado" : "Pendiente"}
-                {c.firmado_at && (
-                  <span className="text-white/60"> · {new Date(c.firmado_at).toLocaleString()}</span>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold">
+                    {CONSENT_LABEL[c.tipo] || String(c.tipo || "").toUpperCase()}
+                    {" · "}
+                    <span className={c.aceptado ? "text-emerald-400" : "text-amber-400"}>
+                      {c.aceptado ? "Firmado" : "Pendiente"}
+                    </span>
+                  </div>
+                  {c.firmado_at && (
+                    <div className="text-[11px] text-white/50 mt-0.5">
+                      {new Date(c.firmado_at).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+                {c.aceptado && (
+                  <button
+                    onClick={() => descargarConsentPdf(c.tipo)}
+                    title="Descargar formato firmado"
+                    className="flex items-center gap-1 rounded-lg border border-white/15 hover:bg-white/10 px-2 py-1 text-[11px] text-white/80 transition shrink-0"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                    </svg>
+                    PDF
+                  </button>
                 )}
               </div>
               {(combinedSrc || drawnSrc || uploadSrc) ? (
@@ -2013,6 +2082,8 @@ export default function AnalistaDashboard() {
               tab={tab}
               setTab={setTab}
               resumen={resumen}
+              evaluacion={evaluacion}
+              disponibilidadReunion={disponibilidadReunion}
               TabCandidato={TabCandidato}
               TabPorTipo={TabPorTipo}
               TabCentrales={TabCentrales}
@@ -2041,6 +2112,8 @@ export default function AnalistaDashboard() {
             tab={tab}
             setTab={setTab}
             resumen={resumen}
+            evaluacion={evaluacion}
+            disponibilidadReunion={disponibilidadReunion}
             TabCandidato={TabCandidato}
             TabPorTipo={TabPorTipo}
             TabCentrales={TabCentrales}
@@ -2183,6 +2256,8 @@ export function Detalle({
   tab,
   setTab,
   resumen,
+  evaluacion,
+  disponibilidadReunion,
   TabCandidato,
   TabPorTipo,
   TabCentrales,
@@ -2321,10 +2396,29 @@ export function Detalle({
             )}
           </div>
 
+          {/* Disponibilidad para reunión indicada por el candidato */}
+          {disponibilidadReunion?.fecha_propuesta && (
+            <div className="rounded-2xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-white">
+              <div className="font-semibold text-sm text-indigo-200 mb-2">
+                Disponibilidad indicada por el candidato
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs text-white/80">
+                <div><span className="text-white/50">Fecha:</span> {disponibilidadReunion.fecha_propuesta}</div>
+                <div><span className="text-white/50">Hora inicio:</span> {disponibilidadReunion.hora_inicio || "—"}</div>
+                <div><span className="text-white/50">Hora fin:</span> {disponibilidadReunion.hora_fin || "—"}</div>
+              </div>
+              {disponibilidadReunion.nota && (
+                <div className="mt-1 text-xs text-white/70">
+                  <span className="text-white/50">Nota:</span> {disponibilidadReunion.nota}
+                </div>
+              )}
+            </div>
+          )}
+
           {isOwner && (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold">Visita virtual (fase 1)</div>
+                <div className="font-semibold">Reunión virtual</div>
                 <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
                   {visitaVirtual?.estado || "NO_INICIADA"}
                 </Badge>
@@ -2432,6 +2526,35 @@ export function Detalle({
               {tab === "INFO_FAMILIAR" && <TabInfoFamiliar />}
               {tab === "DESCRIPCION_VIVIENDA" && <TabDescripcionVivienda />}
             </div>
+
+            {/* Evaluación de trato del candidato */}
+            {evaluacion?.respondida_at && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                <div className="font-semibold text-sm mb-2">Evaluación de trato (candidato)</div>
+                <div className="space-y-2 text-xs text-white/80">
+                  {[
+                    ["Trato analista", evaluacion.trato_analista],
+                    ["Claridad proceso", evaluacion.claridad_proceso],
+                    ["Tiempo respuesta", evaluacion.tiempo_respuesta],
+                    ["Profesionalismo", evaluacion.profesionalismo],
+                    ["Resultado esperado", evaluacion.resultado_esperado],
+                    ["Recomendaria", evaluacion.recomendaria],
+                  ].map(([label, val]) =>
+                    val != null ? (
+                      <div key={label} className="flex justify-between">
+                        <span className="text-white/50">{label}:</span>
+                        <span>{val}</span>
+                      </div>
+                    ) : null
+                  )}
+                  {evaluacion.comentario && (
+                    <div className="mt-1 border-t border-white/10 pt-1">
+                      <span className="text-white/50">Comentario: </span>{evaluacion.comentario}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

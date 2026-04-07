@@ -47,7 +47,14 @@ export const saveConfigFormulario = (payload) =>
 export const getHistorialConfig = () =>
   api.get("/api/historial-config/");
 
-// ===== Visita virtual (fase 1) =====
+// ===== Disponibilidad reunión (candidato) =====
+export const getDisponibilidadReunion = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/disponibilidad-reunion/`);
+
+export const saveDisponibilidadReunion = (estudioId, payload) =>
+  api.post(`/api/estudios/${estudioId}/disponibilidad-reunion/`, payload);
+
+// ===== Reunión virtual =====
 export const getVisitaVirtual = (estudioId) =>
   api.get(`/api/estudios/${estudioId}/visita-virtual/`);
 
