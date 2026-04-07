@@ -5,8 +5,106 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import Candidato, CandidatoSoporte
-from .serializers import CandidatoBioSerializer, CandidatoSoporteSerializer
+from .models import Candidato, CandidatoSoporte, InformacionFamiliar, DescripcionVivienda
+from .serializers import CandidatoBioSerializer, CandidatoSoporteSerializer, InformacionFamiliarSerializer, DescripcionViviendaSerializer
+# -------------------- API Información Familiar --------------------
+class InformacionFamiliarMeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if not info:
+            # Crear registro vacío si no existe
+            info = InformacionFamiliar.objects.create(candidato=cand)
+        ser = InformacionFamiliarSerializer(info, context={"request": request})
+        return Response(ser.data)
+
+    def post(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if info:
+            # Si ya existe, actualiza (igual que PATCH)
+            ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            ser.save()
+            return Response(ser.data, status=200)
+        else:
+            # Si no existe, crea
+            ser = InformacionFamiliarSerializer(data=request.data, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            obj = ser.save(candidato=cand)
+            return Response(InformacionFamiliarSerializer(obj, context={"request": request}).data, status=201)
+
+    def patch(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if not info:
+            return Response({"detail": "No hay información familiar registrada."}, status=404)
+        ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data, status=200)
+
+class DescripcionViviendaMeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "descripcion_vivienda", None)
+        if not info:
+            # Crear registro vacío si no existe
+            info = DescripcionVivienda.objects.create(candidato=cand)
+        ser = DescripcionViviendaSerializer(info, context={"request": request})
+        return Response(ser.data)
+
+    def post(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "descripcion_vivienda", None)
+        if info:
+            ser = DescripcionViviendaSerializer(info, data=request.data, partial=True, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            ser.save()
+            return Response(ser.data, status=200)
+        else:
+            ser = DescripcionViviendaSerializer(data=request.data, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            obj = ser.save(candidato=cand)
+            return Response(DescripcionViviendaSerializer(obj, context={"request": request}).data, status=201)
+
+    def patch(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "descripcion_vivienda", None)
+        if not info:
+            return Response({"detail": "No hay descripción de vivienda registrada."}, status=404)
+        ser = DescripcionViviendaSerializer(info, data=request.data, partial=True, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data, status=200)
+        if info:
+            # Si ya existe, actualiza (igual que PATCH)
+            ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            ser.save()
+            return Response(ser.data, status=200)
+        else:
+            # Si no existe, crea
+            ser = InformacionFamiliarSerializer(data=request.data, context={"request": request})
+            ser.is_valid(raise_exception=True)
+            obj = ser.save(candidato=cand)
+            return Response(InformacionFamiliarSerializer(obj, context={"request": request}).data, status=201)
+
+    # GET eliminado, la lógica es igual a biográfico: solo POST y PATCH
+
+    def patch(self, request):
+        cand = get_candidato_for_user(request)
+        info = getattr(cand, "informacion_familiar", None)
+        if not info:
+            return Response({"detail": "No hay información familiar registrada."}, status=404)
+        ser = InformacionFamiliarSerializer(info, data=request.data, partial=True, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        return Response(ser.data, status=200)
 
 
 def get_candidato_for_user(request):
@@ -14,8 +112,9 @@ def get_candidato_for_user(request):
     cand = getattr(request.user, "candidato", None)
     if cand:
         return cand
-    # Fallback por email (como tenías)
-    return get_object_or_404(Candidato, email=request.user.email)
+    # Fallback por email, pero si hay duplicados, toma el primero
+    from apps.candidates.models import Candidato
+    return Candidato.objects.filter(email=request.user.email).first()
 
 
 class CandidatoMeView(APIView):

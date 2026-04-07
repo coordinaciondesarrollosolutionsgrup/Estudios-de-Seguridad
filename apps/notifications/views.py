@@ -21,3 +21,10 @@ class NotificacionViewSet(viewsets.ModelViewSet):
     def marcar_leidas(self, request):
         Notificacion.objects.filter(user=request.user, is_read=False).update(is_read=True)
         return Response({"ok": True}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def marcar_leida(self, request, pk=None):
+        n = self.get_object()
+        n.is_read = True
+        n.save(update_fields=["is_read"])
+        return Response({"ok": True}, status=status.HTTP_200_OK)

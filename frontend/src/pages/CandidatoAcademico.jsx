@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
+import { useOutletContext } from "react-router-dom";
+import { EstudioEditableProvider, useEstudioEditable } from "../context/EstudioEditableContext";
 
 /* ====== estilos compartidos ====== */
 const inputCls =
@@ -34,17 +36,28 @@ const Field = ({ label, hint, className = "", children }) => (
   </label>
 );
 
-const Input = ({ className = "", ...rest }) => <input className={`${inputCls} ${className}`} {...rest} />;
+const Input = ({ className = "", ...rest }) => {
+  const { editable } = useEstudioEditable();
+  return <input className={`${inputCls} ${className}`} disabled={!editable} {...rest} />;
+};
 
-const Select = ({ value, onChange, children, className = "" }) => (
-  <div className="relative">
-    <select value={value ?? ""} onChange={(e) => onChange?.(e.target.value)} className={`${inputCls} pr-8 ${className}`}>
-      <option value="">Seleccione…</option>
-      {children}
-    </select>
-    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/60">▾</span>
-  </div>
-);
+const Select = ({ value, onChange, children, className = "" }) => {
+  const { editable } = useEstudioEditable();
+  return (
+    <div className="relative">
+      <select
+        value={value ?? ""}
+        onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
+        className={`${inputCls} pr-8 ${className}`}
+        disabled={!editable}
+      >
+        <option value="">Seleccione…</option>
+        {children}
+      </select>
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/60">▾</span>
+    </div>
+  );
+};
 
 /* ====== opciones ====== */
 const grados = [
@@ -264,15 +277,26 @@ const ensureCategoria = (row, fallback) => {
 
 /* ====== agrupadores ====== */
 const groupsFormal = [
-  { key: "primaria", title: "Primaria", match: (r) => r.categoria !== "NO_FORMAL" && /primaria/i.test(r.grado || ""), defaultOpen: false },
-  { key: "secundaria", title: "Secundaria", match: (r) => r.categoria !== "NO_FORMAL" && /secundaria|bachiller/i.test(r.grado || ""), defaultOpen: false },
-  { key: "superior", title: "Educación superior (formal)", match: (r) => r.categoria !== "NO_FORMAL" && !/primaria|secundaria|bachiller/i.test(r.grado || ""), defaultOpen: true },
+  // { key: "primaria", title: "Primaria", match: (r) => r.categoria !== "NO_FORMAL" && /primaria/i.test(r.grado || ""), defaultOpen: false },
+  { key: "secundaria", title: "Secundaria", match: (r) => r.categoria !== "NO_FORMAL" && /primaria|secundaria|bachiller/i.test(r.grado || ""), defaultOpen: false },
+  { key: "superior", title: "Educación superior (formal)", match: (r) => r.categoria !== "NO_FORMAL" && !/secundaria|bachiller/i.test(r.grado || ""), defaultOpen: true },
 ];
 
 const groupNoFormal = { key: "no_formal", title: "Educación no formal (diplomados, cursos)", match: (r) => r.categoria === "NO_FORMAL", defaultOpen: false };
 
 /* =================================== Módulo =================================== */
-export default function CandidatoAcademico() {
+export default function CandidatoAcademico(props) {
+  const outlet = useOutletContext() || {};
+  const studyId = outlet?.studyId ?? null;
+  return (
+    <EstudioEditableProvider studyId={studyId}>
+      <CandidatoAcademicoInner {...props} />
+    </EstudioEditableProvider>
+  );
+}
+
+function CandidatoAcademicoInner(props) {
+  const { editable, loading: loadingEditable } = useEstudioEditable();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
@@ -398,11 +422,11 @@ export default function CandidatoAcademico() {
 
   /* crear */
   const startAddIn = (groupKey) => {
+    // No permitir agregar registro detallado de primaria
+    if (groupKey === "primaria") return;
     setNewTarget(groupKey);
     const suggestedGrado =
-      groupKey === "primaria"
-        ? "Primaria"
-        : groupKey === "secundaria"
+      groupKey === "secundaria"
         ? "Secundaria"
         : groupKey === "no_formal"
         ? "Diplomado"

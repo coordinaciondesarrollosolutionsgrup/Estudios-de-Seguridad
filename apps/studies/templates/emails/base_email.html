@@ -1,0 +1,55 @@
+{% load email_settings %}{% frontend_url as base_url %}<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block subject %}Notificación{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+
+          <!-- HEADER -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:32px 40px;text-align:center;">
+              <img src="{{ base_url }}/logo-econfia%20blanco.png"
+                   alt="eConfia"
+                   width="180"
+                   style="max-width:180px;height:auto;display:block;margin:0 auto;"
+                   onerror="this.style.display='none';document.getElementById('logo-text').style.display='block';" />
+              <div id="logo-text" style="display:none;color:#ffffff;font-size:28px;font-weight:800;letter-spacing:2px;">eCONFIA</div>
+              <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:8px 0 0 0;letter-spacing:1px;text-transform:uppercase;">Sistema de Estudios de Seguridad</p>
+            </td>
+          </tr>
+
+          <!-- CONTENT -->
+          <tr>
+            <td style="padding:40px 40px 32px 40px;color:#1e293b;font-size:15px;line-height:1.7;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- DIVIDER -->
+          <tr>
+            <td style="padding:0 40px;">
+              <hr style="border:none;border-top:1px solid #e2e8f0;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="padding:24px 40px;text-align:center;color:#94a3b8;font-size:12px;line-height:1.6;">
+              Este mensaje fue generado automáticamente por el sistema de estudios.<br />
+              Por favor no responda a este correo.<br />
+              <a href="https://conecta.econfia.co/" style="color:#2563eb;text-decoration:none;font-weight:600;">conecta.econfia.co</a>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

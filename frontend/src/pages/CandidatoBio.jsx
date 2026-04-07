@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import api from "../api/axios";
 import { getDepartamentos, getMunicipios } from "../api/geo";
 import { bioProgress, saveSectionProgress, overallProgress, pushStudyProgress } from "../utils/progress";
+import { EstudioEditableProvider, useEstudioEditable } from "../context/EstudioEditableContext";
 
 /* ====== estilos ====== */
 const inputCls =
@@ -19,7 +20,9 @@ const clampEstatura = (v) => {
   if (v === "" || v == null) return "";
   const n = Number(v);
   if (Number.isNaN(n)) return "";
-  return Math.max(50, Math.min(250, n));
+  if (n < 50) return 50;
+  if (n > 250) return 250;
+  return n;
 };
 
 const sanitizeMovil = (s = "", maxDigits = 15) => {
@@ -117,7 +120,8 @@ async function uploadDoc(kind, file) {
 }
 
 /* ====== componente ====== */
-export default function CandidatoBio() {
+function CandidatoBioInner() {
+  const { editable, loading: loadingEditable } = useEstudioEditable();
   const outlet = useOutletContext() || {};
   const studyId = outlet?.studyId ?? null;
 
@@ -167,6 +171,7 @@ export default function CandidatoBio() {
   const draftKey = me?.id ? `bioDraft:v3:${me.id}` : null;
 
   const setVal = (k, v) => {
+    if (!editable) return;
     setDraft((s) => ({ ...s, [k]: v }));
     setDirty(true);
   };
@@ -385,6 +390,12 @@ export default function CandidatoBio() {
     "fecha_expedicion",
     "lugar_expedicion",
 
+    // NUEVOS CAMPOS BIOGRÁFICOS
+    "nacionalidad",
+    "discapacidad",
+    "idiomas",
+    "estado_migratorio",
+
     // NUEVOS opcionales
     "libreta_militar_numero","libreta_militar_clase","libreta_militar_distrito",
     "licencia_transito_numero","licencia_transito_categoria","licencia_transito_vence",
@@ -468,20 +479,8 @@ export default function CandidatoBio() {
     if (draftKey) localStorage.removeItem(draftKey);
   };
 
-  if (loading && !draft) {
-    return (
-      <div className="text-slate-100">
-        Cargando…
-        {msg && (
-          <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-            {msg}{" "}
-            <button className="ml-2 rounded bg-white/10 px-2 py-1" onClick={() => loadMe()} type="button">
-              Reintentar
-            </button>
-          </div>
-        )}
-      </div>
-    );
+  if ((loading && !draft) || loadingEditable) {
+    return <div className="text-slate-100">Cargando…</div>;
   }
 
   if (!draft) return <div className="text-slate-100">Sin datos para mostrar.</div>;
@@ -496,21 +495,22 @@ export default function CandidatoBio() {
           <button
             type="button"
             onClick={handleReset}
-            disabled={!dirty || saving}
-            className={`rounded-xl border px-4 py-2 text-sm ${
-              !dirty || saving
-                ? "cursor-not-allowed border-white/10 bg-white/5 text-slate-400"
-                : "border-white/10 bg-white/10 text-slate-200 hover:bg-white/20"
-            }`}
+            disabled={!dirty || saving || !editable}
+            className={`rounded-xl border-2 px-4 py-2 text-sm font-medium transition
+              bg-slate-700 text-white/80 border-slate-600
+              ${!dirty || saving || !editable
+                ? "cursor-not-allowed opacity-50"
+                : "hover:border-violet-500 hover:shadow-[0_0_10px_2px_rgba(139,92,246,0.3)] hover:text-violet-200"}
+            `}
           >
             Descartar cambios
           </button>
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || saving}
+            disabled={!dirty || saving || !editable}
             className={`rounded-xl px-4 py-2 text-sm font-medium text-white transition ${
-              !dirty || saving ? "cursor-not-allowed bg-slate-600" : "bg-emerald-600 hover:bg-emerald-500"
+              !dirty || saving || !editable ? "cursor-not-allowed bg-slate-600" : "bg-emerald-600 hover:bg-emerald-500"
             }`}
           >
             {saving ? "Guardando…" : "Guardar cambios"}
@@ -639,14 +639,23 @@ export default function CandidatoBio() {
             <Input value={edad} readOnly />
           </Field>
 
-          <Field label="Estatura (cm)" hint="Entre 50 y 250">
+          <Field label="Estatura (cm)" hint="Entre 50 y 250 sin punto ni comas">
             <Input
               type="number"
               placeholder="Ej: 175"
               value={draft.estatura_cm ?? ""}
-              onChange={(e) =>
-                setVal("estatura_cm", e.target.value === "" ? null : clampEstatura(e.target.value))
-              }
+              onChange={(e) => {
+                // Permitir escribir libremente
+                const val = e.target.value;
+                setVal("estatura_cm", val === "" ? null : val);
+              }}
+              onBlur={(e) => {
+                // Al perder foco, corregir si está fuera de rango
+                const val = e.target.value;
+                if (val !== "" && val != null) {
+                  setVal("estatura_cm", clampEstatura(val));
+                }
+              }}
               inputMode="numeric"
               min={50}
               max={250}
@@ -696,6 +705,40 @@ export default function CandidatoBio() {
               placeholder="Ciudad / Municipio"
               value={draft.lugar_expedicion || ""}
               onChange={(e) => setVal("lugar_expedicion", e.target.value)}
+              maxLength={120}
+            />
+          </Field>
+
+          {/* CAMPOS BIOGRÁFICOS ADICIONALES */}
+          <Field label="Nacionalidad">
+            <Input
+              placeholder="Ej: Colombiana"
+              value={draft.nacionalidad || ""}
+              onChange={(e) => setVal("nacionalidad", e.target.value)}
+              maxLength={80}
+            />
+          </Field>
+          <Field label="Discapacidad" hint="Si aplica, especifica tipo o deja vacío">
+            <Input
+              placeholder="Ej: Visual, auditiva, motriz, etc."
+              value={draft.discapacidad || ""}
+              onChange={(e) => setVal("discapacidad", e.target.value)}
+              maxLength={120}
+            />
+          </Field>
+          <Field label="Idiomas" hint="Separados por coma, ej: Español, Inglés, Francés">
+            <Input
+              placeholder="Español, Inglés, ..."
+              value={draft.idiomas || ""}
+              onChange={(e) => setVal("idiomas", e.target.value)}
+              maxLength={200}
+            />
+          </Field>
+          <Field label="Estado migratorio" hint="Si aplica, ejemplo: Residente, temporal, etc.">
+            <Input
+              placeholder="Ej: Residente, temporal, ..."
+              value={draft.estado_migratorio || ""}
+              onChange={(e) => setVal("estado_migratorio", e.target.value)}
               maxLength={120}
             />
           </Field>
@@ -756,7 +799,7 @@ export default function CandidatoBio() {
           </Field>
 
           {/* ---------- NUEVOS SOPORTES / ARCHIVOS ---------- */}
-          <Field label="Copia de cédula" className="md:col-span-3">
+          <Field label="Copia de cédula" hint="Puedes subir un PDF con ambas caras escaneadas o una foto por cada lado" className="md:col-span-3">
             <SupportChip href={cedPreview} label="Ver copia de cédula" />
             <div className="mt-2 flex items-center gap-2">
               <input
@@ -1123,5 +1166,15 @@ export default function CandidatoBio() {
         </AccordionItem>
       </div>
     </div>
+  );
+}
+
+export default function CandidatoBio(props) {
+  const outlet = useOutletContext() || {};
+  const studyId = outlet?.studyId ?? null;
+  return (
+    <EstudioEditableProvider studyId={studyId}>
+      <CandidatoBioInner {...props} />
+    </EstudioEditableProvider>
   );
 }

@@ -1,4 +1,4 @@
-# apps/studies/serializers.py
+﻿# apps/studies/serializers.py
 from rest_framework import serializers
 from django.utils.module_loading import import_string
 from apps.candidates.serializers import CandidatoBioSerializer
@@ -17,10 +17,12 @@ from .models import (
     EvaluacionTrato,
     EstudioReferencia,
     ReferenciaPersonal,
-    Patrimonio
+    Patrimonio,
+    DisponibilidadReunionCandidato,
 )
 from apps.candidates.models import Candidato
 from apps.accounts.models import Empresa
+from .models import ClienteConfiguracionFormulario, ClientePoliticaConfiguracion
 
 
 # -------------------- Candidato / Solicitud --------------------
@@ -31,7 +33,7 @@ class ReferenciaPersonalSerializer(serializers.ModelSerializer):
         fields = ["id","estudio","candidato","nombre","telefono","ocupacion","empresa",
                   "tiempo_conocerse","concepto_sobre_referenciado","concepto_analista","creado"]
         read_only_fields = ["id","candidato","creado"]
-        extra_kwargs = {"estudio": {"required": False}}  # 👈
+        extra_kwargs = {"estudio": {"required": False}}  # ðŸ‘ˆ
 
 
 
@@ -40,7 +42,7 @@ class PatrimonioSerializer(serializers.ModelSerializer):
         model = Patrimonio
         fields = "__all__"
         read_only_fields = ["id","candidato","creado"]
-        extra_kwargs = {"estudio": {"required": False}}  # 👈
+        extra_kwargs = {"estudio": {"required": False}}  # ðŸ‘ˆ
 
         
 class EvaluacionTratoSerializer(serializers.ModelSerializer):
@@ -90,12 +92,54 @@ class SolicitudCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         cand_data = validated_data.pop("candidato")
-        candidato, _ = Candidato.objects.get_or_create(cedula=cand_data["cedula"], defaults=cand_data)
         empresa = validated_data.pop("empresa", None) or self.context.get("empresa")
         if empresa is None:
             raise serializers.ValidationError({"empresa": ["Empresa no especificada."]})
+
+        cand_data = dict(cand_data)
+        cand_data.pop("id", None)
+        cedula = (cand_data.get("cedula") or "").strip()
+        if not cedula:
+            raise serializers.ValidationError({"candidato": {"cedula": ["La cédula es requerida."]}})
+
+        # Reutiliza candidato existente por cédula para soportar nuevos estudios históricos.
+        candidato = Candidato.objects.filter(cedula=cedula).first()
+        if candidato:
+            for field in ("nombre", "apellido", "email", "celular", "ciudad_residencia"):
+                val = cand_data.get(field, None)
+                if val not in (None, ""):
+                    setattr(candidato, field, val)
+            candidato.save(update_fields=["nombre", "apellido", "email", "celular", "ciudad_residencia", "updated_at"])
+        else:
+            candidato = Candidato.objects.create(**cand_data)
+
         solicitud = Solicitud.objects.create(empresa=empresa, candidato=candidato, **validated_data)
-        Estudio.objects.create(solicitud=solicitud)
+        estudio = Estudio.objects.create(solicitud=solicitud)
+
+        # Crear solo los items/subitems permitidos según la configuración personalizada
+        from apps.studies.models import ClienteConfiguracionFormulario, EstudioItem
+        ALL_ITEMS = [
+            "BIOGRAFICOS", "INFO_FAMILIAR", "VIVIENDA", "ACADEMICO", "LABORAL", "REFERENCIAS",
+            "ECONOMICA", "PATRIMONIO", "DOCUMENTOS", "ANEXOS_FOTOGRAFICOS", "LISTAS_RESTRICTIVAS"
+        ]
+        excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=empresa, excluido=True)
+        excluidos_dict = {}
+        excluded_modules = set()
+        for e in excluidos:
+            item_key = (e.item or "").upper().strip()
+            if item_key == "ECONOMICO":
+                item_key = "ECONOMICA"
+            sub_key = (e.subitem or "").upper().strip()
+            excluidos_dict.setdefault(item_key, set()).add(sub_key)
+            # Marca de exclusión de módulo completo (configurada desde "Arma tu estudio")
+            if sub_key == "__ITEM__":
+                excluded_modules.add(item_key)
+
+        for item in ALL_ITEMS:
+            if item in excluded_modules:
+                continue
+            EstudioItem.objects.create(estudio=estudio, tipo=item)
+
         return solicitud
 
 
@@ -144,14 +188,14 @@ class EstudioItemSerializer(serializers.ModelSerializer):
                 "tipo": a.tipo,
                 "label": a.get_tipo_display(),
                 "no_aplica": a.no_aplica,
-                "archivo_url": self._abs_url(getattr(a, "archivo", None)),  # 👈 clave uniforme
+                "archivo_url": self._abs_url(getattr(a, "archivo", None)),  # ðŸ‘ˆ clave uniforme
                 "comentario": a.comentario or "",
             })
         return data
 
 
     def get_economica(self, obj):
-        # acepta INFO_ECONOMICA o ECONOMICA según tu Enum
+        # acepta INFO_ECONOMICA o ECONOMICA segÃºn tu Enum
         t = str(getattr(obj, "tipo", "")).upper()
         if t not in {str(getattr(ItemTipo, "INFO_ECONOMICA", "INFO_ECONOMICA")).upper(),
                      str(getattr(ItemTipo, "ECONOMICA", "ECONOMICA")).upper()}:
@@ -243,11 +287,11 @@ class EstudioItemSerializer(serializers.ModelSerializer):
                 "fecha_graduacion": getattr(a, "fecha_graduacion", None),
                 "presenta_original": getattr(a, "presenta_original", False),
 
-                # Soporte “clásico”
+                # Soporte â€œclÃ¡sicoâ€
                 "archivo": self._abs_url(getattr(a, "archivo", None)),
                 "archivo_tipo": getattr(a, "archivo_tipo", None),
 
-                # Autoridades académicas
+                # Autoridades acadÃ©micas
                 "rector": getattr(a, "rector", ""),
                 "secretario_general": getattr(a, "secretario_general", ""),
                 "secretario_academico": getattr(a, "secretario_academico", ""),
@@ -327,43 +371,113 @@ class EstudioConsentimientoSerializer(serializers.ModelSerializer):
         return self._abs(obj.firma_imagen)
 
 
+POLITICA_LABELS = {
+    ("delitos", "procesos_alimentos"): "Procesos de alimentos",
+    ("delitos", "rinas"): "RiÃ±as",
+    ("residencia", "zonas_perifericas"): "Zonas perifÃ©ricas",
+    ("residencia", "sur_ciudad"): "Sur de la ciudad",
+    ("residencia", "comunas"): "Comunas",
+    ("transito", "comparendos"): "Comparendos",
+    ("centrales", "reportes_negativos"): "Reportes negativos",
+    ("drogas", "consumo_frecuente"): "Consumo frecuente",
+    ("drogas", "consumo_pasado"): "Consumo pasado",
+    ("otros", "delitos"): "Otros",
+}
+
+
 class EstudioSerializer(serializers.ModelSerializer):
     solicitud_id = serializers.IntegerField(source="solicitud.id", read_only=True)
     empresa = EmpresaMiniSerializer(source="solicitud.empresa", read_only=True)
     candidato = CandidatoMiniSerializer(source="solicitud.candidato", read_only=True)
     analista = serializers.SerializerMethodField()
+    es_propietario = serializers.SerializerMethodField()
     items = EstudioItemSerializer(many=True, read_only=True)
     consentimientos = serializers.SerializerMethodField()
     editable_por_candidato = serializers.SerializerMethodField()
+    politicas_no_relevantes = serializers.SerializerMethodField()
+    alerta_estudio_recurrente = serializers.SerializerMethodField()
+    estudios_previos_count = serializers.SerializerMethodField()
+    ultimo_estudio_previo_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Estudio
         fields = [
             "id", "solicitud_id",
-            "empresa", "candidato", "analista",
+            "empresa", "candidato", "analista", "es_propietario",
             "autorizacion_firmada", "autorizacion_fecha",
             "progreso", "score_cuantitativo", "nivel_cualitativo",
             "estado", "enviado_at", "observacion_analista",
             "decision_final", "finalizado_at",
             "editable_por_candidato",
             "items", "consentimientos",
+            "a_consideracion_cliente",
+            "politicas_no_relevantes",
+            "alerta_estudio_recurrente",
+            "estudios_previos_count",
+            "ultimo_estudio_previo_id",
         ]
         read_only_fields = fields
+
+    def get_politicas_no_relevantes(self, obj):
+        empresa = getattr(getattr(obj, "solicitud", None), "empresa", None)
+        if not empresa:
+            return []
+        politicas = ClientePoliticaConfiguracion.objects.filter(
+            empresa=empresa, no_relevante=True
+        )
+        labels = []
+        for p in politicas:
+            label = POLITICA_LABELS.get((p.criterio, p.opcion))
+            if label:
+                labels.append(label)
+            else:
+                labels.append(f"{p.criterio}: {p.opcion}")
+        return labels
 
     def get_analista(self, obj):
         a = getattr(obj.solicitud, "analista", None)
         if not a:
             return None
-        return {"id": a.id, "username": a.username, "email": a.email or ""}
+        nombre_completo = f"{a.first_name} {a.last_name}".strip() or a.username
+        return {"id": a.id, "username": a.username, "nombre": nombre_completo, "email": a.email or ""}
+
+    def get_es_propietario(self, obj):
+        request = self.context.get("request")
+        if not request:
+            return True
+        user = request.user
+        rol = getattr(user, "rol", None)
+        if rol == "ADMIN":
+            return True
+        if rol == "ANALISTA":
+            analista = getattr(obj.solicitud, "analista", None)
+            return bool(analista and analista.id == user.id)
+        return True
 
     def get_consentimientos(self, obj):
         qs = obj.consentimientos.all().order_by("tipo")
         return EstudioConsentimientoSerializer(qs, many=True, context=self.context).data
 
     def get_editable_por_candidato(self, obj):
-        # Derivado: editable si NO está en revisión ni cerrado
+        # Derivado: editable si NO estÃ¡ en revisiÃ³n ni cerrado
         estado = (getattr(obj, "estado", "") or "").upper()
         return estado not in {"EN_REVISION", "CERRADO"}
+
+    def _previos_qs(self, obj):
+        cand_id = getattr(getattr(obj, "solicitud", None), "candidato_id", None)
+        if not cand_id:
+            return Estudio.objects.none()
+        return Estudio.objects.filter(solicitud__candidato_id=cand_id).exclude(pk=obj.pk)
+
+    def get_alerta_estudio_recurrente(self, obj):
+        return self._previos_qs(obj).exists()
+
+    def get_estudios_previos_count(self, obj):
+        return self._previos_qs(obj).count()
+
+    def get_ultimo_estudio_previo_id(self, obj):
+        prev = self._previos_qs(obj).order_by("-solicitud__created_at", "-id").first()
+        return prev.id if prev else None
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -378,7 +492,39 @@ class EstudioSerializer(serializers.ModelSerializer):
         return data
 
 
-# -------------------- CRUD de módulos --------------------
+class EstudioClienteListSerializer(serializers.ModelSerializer):
+    solicitud_id = serializers.IntegerField(source="solicitud.id", read_only=True)
+    empresa = EmpresaMiniSerializer(source="solicitud.empresa", read_only=True)
+    candidato = CandidatoMiniSerializer(source="solicitud.candidato", read_only=True)
+    analista = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Estudio
+        fields = [
+            "id",
+            "solicitud_id",
+            "empresa",
+            "candidato",
+            "analista",
+            "progreso",
+            "score_cuantitativo",
+            "nivel_cualitativo",
+            "estado",
+            "decision_final",
+            "enviado_at",
+            "finalizado_at",
+            "a_consideracion_cliente",
+        ]
+        read_only_fields = fields
+
+    def get_analista(self, obj):
+        a = getattr(obj.solicitud, "analista", None)
+        if not a:
+            return None
+        nombre_completo = f"{a.first_name} {a.last_name}".strip() or a.username
+        return {"id": a.id, "username": a.username, "nombre": nombre_completo, "email": a.email or ""}
+
+# -------------------- CRUD de mÃ³dulos --------------------
 class AcademicoSerializer(serializers.ModelSerializer):
     archivo = serializers.FileField(required=False, allow_null=True)
     cert_antecedentes = serializers.FileField(required=False, allow_null=True)
@@ -389,7 +535,7 @@ class AcademicoSerializer(serializers.ModelSerializer):
         read_only_fields = ("candidato",)
 
     def validate(self, attrs):
-        # Mantiene tu validación previa
+        # Mantiene tu validaciÃ³n previa
         tiene = attrs.get("tiene_matricula",
                           getattr(self.instance, "tiene_matricula", None))
         num = attrs.get("matricula_numero",
@@ -399,11 +545,11 @@ class AcademicoSerializer(serializers.ModelSerializer):
                 "matricula_numero": ["Requerido cuando 'tiene_matricula' es verdadero."]
             })
 
-        # ⬇️ Validaciones nuevas por nivel
+        # â¬‡ï¸ Validaciones nuevas por nivel
         nivel = attrs.get("nivel", getattr(self.instance, "nivel", None))
         superior = {"TECNICO", "TECNOLOGO", "PROFESIONAL", "ESPECIALIZACION", "MAESTRIA", "DOCTORADO"}
 
-        # Primaria/Secundaria/Bachiller → rector y secretario_general obligatorios
+        # Primaria/Secundaria/Bachiller â†’ rector y secretario_general obligatorios
         if nivel in {"PRIMARIA", "SECUNDARIA", "BACHILLER"}:
             rector = (attrs.get("rector", getattr(self.instance, "rector", "")) or "").strip()
             secg  = (attrs.get("secretario_general", getattr(self.instance, "secretario_general", "")) or "").strip()
@@ -416,18 +562,18 @@ class AcademicoSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(errs)
             # secretario_academico y jefe_registro permanecen opcionales
 
-        # Educación superior → exigir certificados
+        # EducaciÃ³n superior â†’ exigir certificados
         if nivel in superior:
             # certificado de antecedentes (siempre para superior)
             if not (attrs.get("cert_antecedentes") or getattr(self.instance, "cert_antecedentes", None)):
                 raise serializers.ValidationError({
                     "cert_antecedentes": ["Adjunta el certificado de vigencia de antecedentes disciplinarios."]
                 })
-            # copia matrícula si tiene tarjeta
+            # copia matrÃ­cula si tiene tarjeta
             if bool(tiene):
                 if not (attrs.get("matricula_archivo") or getattr(self.instance, "matricula_archivo", None)):
                     raise serializers.ValidationError({
-                        "matricula_archivo": ["Adjunta la copia de la matrícula profesional."]
+                        "matricula_archivo": ["Adjunta la copia de la matrÃ­cula profesional."]
                     })
 
         return attrs
@@ -445,13 +591,14 @@ class LaboralSerializer(serializers.ModelSerializer):
             "telefono", "email_contacto", "direccion",
             "ingreso", "retiro", "motivo_retiro",
             "tipo_contrato",
-            "jefe_inmediato", "jefe_telefono",  # 👈 usamos el alias
+            "jefe_inmediato", "jefe_telefono",  # ðŸ‘ˆ usamos el alias
             # (ya no exponemos referencia_nombre / referencia_telefono)
             "verificada_camara", "volveria_contratar",
             "concepto", "certificado", "creado",
         ]
         read_only_fields = ["id", "candidato", "creado"]
         extra_kwargs = {"estudio": {"required": False}}
+
 
 class EstudioReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -471,7 +618,7 @@ class EstudioDetalleSerializer(serializers.ModelSerializer):
     candidato = CandidatoBioSerializer(source="solicitud.candidato", read_only=True)
     items = EstudioItemSerializer(many=True, read_only=True)
     consentimientos = EstudioConsentimientoSerializer(many=True, read_only=True)
-    editable_por_candidato = serializers.SerializerMethodField()  # ⬅️ clave
+    editable_por_candidato = serializers.SerializerMethodField()  # â¬…ï¸ clave
 
     class Meta:
         model = Estudio
@@ -482,7 +629,7 @@ class EstudioDetalleSerializer(serializers.ModelSerializer):
             "decision_final", "finalizado_at",
             "candidato",
             "consentimientos", "items",
-            "editable_por_candidato",  # ⬅️ incluir aquí
+            "editable_por_candidato",  # â¬…ï¸ incluir aquÃ­
         )
         read_only_fields = fields
 
@@ -490,7 +637,7 @@ class EstudioDetalleSerializer(serializers.ModelSerializer):
         estado = (getattr(obj, "estado", "") or "").upper()
         return estado not in {"EN_REVISION", "CERRADO"}
 
-    # opcional: mantener la misma ocultación que haces en EstudioSerializer
+    # opcional: mantener la misma ocultaciÃ³n que haces en EstudioSerializer
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
@@ -499,3 +646,46 @@ class EstudioDetalleSerializer(serializers.ModelSerializer):
             data.pop("score_cuantitativo", None)
             data.pop("nivel_cualitativo", None)
         return data
+
+
+
+class ClienteConfiguracionFormularioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClienteConfiguracionFormulario
+        fields = ['id', 'empresa', 'item', 'subitem', 'excluido', 'creado', 'actualizado']
+        read_only_fields = ['id', 'empresa', 'creado', 'actualizado']
+
+
+# Serializer para polÃ­ticas configurables del cliente
+from .models import ClientePoliticaConfiguracion, HistorialConfiguracion, DisponibilidadReunionCandidato
+
+class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ClientePoliticaConfiguracion
+        fields = [
+            'id', 'empresa', 'usuario', 'criterio', 'opcion',
+            'no_relevante', 'bloqueado', 'creado', 'actualizado'
+        ]
+        read_only_fields = ['id', 'empresa', 'usuario', 'bloqueado', 'creado', 'actualizado']
+
+
+class HistorialConfiguracionSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HistorialConfiguracion
+        fields = ['id', 'tipo', 'accion', 'item', 'subitem', 'fecha', 'usuario_nombre']
+
+    def get_usuario_nombre(self, obj):
+        return obj.usuario.username if obj.usuario else 'desconocido'
+
+
+class DisponibilidadReunionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DisponibilidadReunionCandidato
+        fields = [
+            'id', 'estudio', 'fecha_propuesta', 'hora_inicio',
+            'hora_fin', 'nota', 'creada_at', 'actualizada_at',
+        ]
+        read_only_fields = ['id', 'estudio', 'creada_at', 'actualizada_at']
+

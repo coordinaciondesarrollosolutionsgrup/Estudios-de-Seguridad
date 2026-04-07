@@ -1,0 +1,17 @@
+Hola {{ nombre }},
+
+Tu usuario en eConfia fue reactivado por el administrador y ya puedes volver a ingresar.
+
+Usuario: {{ username }}
+Rol: {{ rol }}
+{% if es_candidato and access_deadline %}
+Límite de acceso: {{ access_deadline|date:"d/m/Y H:i" }}
+
+Importante:
+- Tu acceso como candidato estará activo hasta la fecha indicada.
+- Después de ese momento, tu usuario volverá a quedar inactivo.
+{% endif %}
+
+Ingresa aquí: {{ frontend_url }}
+
+Este mensaje fue generado automáticamente por el sistema. No respondas a este correo.

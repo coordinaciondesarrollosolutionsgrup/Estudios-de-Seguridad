@@ -1,6 +1,59 @@
+
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
+
+class ClientePoliticaConfiguracion(models.Model):
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='politica_configuracion')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='politica_configuracion')
+    criterio = models.CharField(max_length=50)  # Ej: 'delitos', 'residencia', 'transito', 'centrales', 'drogas'
+    opcion = models.CharField(max_length=50)    # Ej: 'riñas', 'zonas_perifericas', 'comparendos', etc.
+    no_relevante = models.BooleanField(default=True)
+    bloqueado = models.BooleanField(default=False)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('empresa', 'criterio', 'opcion')
+
+    def __str__(self):
+        return f"{self.empresa} - {self.criterio} - {self.opcion} (no relevante: {self.no_relevante})"
+
+# Configuración de ítems/subítems excluidos por cliente
+class ClienteConfiguracionFormulario(models.Model):
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='configuracion_formulario')
+    item = models.CharField(max_length=100)
+    subitem = models.CharField(max_length=100)
+    excluido = models.BooleanField(default=True)  # Si está excluido, no aparece en formularios
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('empresa', 'item', 'subitem')
+
+    def __str__(self):
+        return f"{self.empresa} excluye {self.subitem} de {self.item}"
+
+
+class HistorialConfiguracion(models.Model):
+    TIPO_CHOICES = [
+        ('formulario', 'Formulario'),
+        ('politica', 'Política'),
+    ]
+    empresa = models.ForeignKey('accounts.Empresa', on_delete=models.CASCADE, related_name='historial_configuracion')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='historial_configuracion')
+    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
+    accion = models.CharField(max_length=100)   # Ej: "Excluyó subítem", "Incluyó subítem", "Marcó no relevante"
+    item = models.CharField(max_length=100)     # Ej: "BIOGRÁFICOS", "delitos"
+    subitem = models.CharField(max_length=100)  # Ej: "fecha de nacimiento", "riñas"
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-fecha']
+
+    def __str__(self):
+        return f"{self.usuario} - {self.accion} - {self.item}: {self.subitem}"
+
 
 class EstudioReferencia(models.Model):
     estudio = models.ForeignKey("studies.Estudio", related_name="referencias", on_delete=models.CASCADE)
@@ -54,6 +107,7 @@ class Estudio(models.Model):
     score_cuantitativo = models.FloatField(default=0.0)
     nivel_cualitativo = models.CharField(max_length=20, default="BAJO")
     updated_at = models.DateTimeField(auto_now=True)
+    a_consideracion_cliente = models.BooleanField(default=False, help_text="Indica si el estudio fue creado bajo configuración personalizada del cliente (criterios no relevantes)")
 
     estado = models.CharField(max_length=20, choices=EstudioEstado.choices, default=EstudioEstado.EN_CAPTURA, db_index=True)
     enviado_at = models.DateTimeField(null=True, blank=True)
@@ -68,6 +122,7 @@ class Estudio(models.Model):
         return "BAJO"
 
     def recalcular(self):
+        # Calcular progreso y score considerando todos los ítems
         items = self.items.all()
         total = items.count() or 1
         done = items.filter(estado__in=["VALIDADO","CERRADO"]).count()
@@ -103,6 +158,59 @@ class Estudio(models.Model):
         self.save(update_fields=["estado", "observacion_analista", "decision_final", "finalizado_at", "updated_at"])
 
 
+class DisponibilidadReunionCandidato(models.Model):
+    """Disponibilidad que el candidato propone para su reunión virtual."""
+    estudio = models.OneToOneField(
+        "studies.Estudio", on_delete=models.CASCADE,
+        related_name="disponibilidad_reunion"
+    )
+    fecha_propuesta = models.DateField(null=True, blank=True)
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fin = models.TimeField(null=True, blank=True)
+    nota = models.TextField(blank=True, default="")
+    creada_at = models.DateTimeField(auto_now_add=True)
+    actualizada_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Disponibilidad reunión estudio #{self.estudio_id}"
+
+
+class VisitaVirtualEstado(models.TextChoices):
+    ACTIVA = "ACTIVA", "Activa"
+    FINALIZADA = "FINALIZADA", "Finalizada"
+
+
+class EstudioVisitaVirtual(models.Model):
+    estudio = models.OneToOneField("studies.Estudio", on_delete=models.CASCADE, related_name="visita_virtual")
+    meeting_url = models.URLField(max_length=500)
+    estado = models.CharField(max_length=20, choices=VisitaVirtualEstado.choices, default=VisitaVirtualEstado.ACTIVA)
+
+    consentida_por_candidato = models.BooleanField(default=False)
+    consentida_at = models.DateTimeField(null=True, blank=True)
+
+    ultima_latitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    ultima_longitud = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    ultima_precision_m = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    ultima_actualizacion_at = models.DateTimeField(null=True, blank=True)
+
+    activa_desde = models.DateTimeField(auto_now_add=True)
+    finalizada_at = models.DateTimeField(null=True, blank=True)
+    creada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="visitas_virtuales_creadas",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-activa_desde"]
+
+    def __str__(self):
+        return f"Visita virtual estudio #{self.estudio_id} ({self.estado})"
+
+
 class ItemTipo(models.TextChoices):
     LISTAS_RESTRICTIVAS = "LISTAS_RESTRICTIVAS"
     TITULOS_ACADEMICOS = "TITULOS_ACADEMICOS"
@@ -111,6 +219,8 @@ class ItemTipo(models.TextChoices):
     ANEXOS_FOTOGRAFICOS = "ANEXOS_FOTOGRAFICOS"
     REFERENCIAS_PERSONALES = "REFERENCIAS_PERSONALES"     # 👈 nuevo
     INFO_PATRIMONIO        = "INFO_PATRIMONIO" 
+
+
     
 class ReferenciaPersonal(models.Model):
     estudio   = models.ForeignKey("studies.Estudio", related_name="refs_personales", on_delete=models.CASCADE)
@@ -197,8 +307,9 @@ class EstudioConsentimiento(models.Model):
     aceptado = models.BooleanField(default=False)
     firmado_at = models.DateTimeField(null=True, blank=True)
 
-    firma = models.FileField(upload_to="firmas/", null=True, blank=True)
-    firma_imagen = models.FileField(upload_to="firmas/", null=True, blank=True)
+    firma = models.FileField(upload_to="firmas/", null=True, blank=True)           # combinada (trazo + imagen)
+    firma_draw = models.FileField(upload_to="firmas/", null=True, blank=True)      # solo trazo digital
+    firma_imagen = models.FileField(upload_to="firmas/", null=True, blank=True)    # solo imagen subida
 
     ip = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.TextField(null=True, blank=True)

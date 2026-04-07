@@ -40,3 +40,32 @@ export const upsertPatrimonio = (estudioId, data, id) =>
         ...data,
         estudio: estudioId,
       });
+
+export const saveConfigFormulario = (payload) =>
+  api.post("/api/config-formulario/", payload);
+
+export const getHistorialConfig = () =>
+  api.get("/api/historial-config/");
+
+// ===== Disponibilidad reunión (candidato) =====
+export const getDisponibilidadReunion = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/disponibilidad-reunion/`);
+
+export const saveDisponibilidadReunion = (estudioId, payload) =>
+  api.post(`/api/estudios/${estudioId}/disponibilidad-reunion/`, payload);
+
+// ===== Reunión virtual =====
+export const getVisitaVirtual = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/visita-virtual/`);
+
+export const iniciarVisitaVirtual = (estudioId, meetingUrl) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/iniciar/`, { meeting_url: meetingUrl });
+
+export const finalizarVisitaVirtual = (estudioId) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/finalizar/`);
+
+export const consentirVisitaVirtual = (estudioId) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/consentir/`);
+
+export const enviarUbicacionVisitaVirtual = (estudioId, payload) =>
+  api.post(`/api/estudios/${estudioId}/visita-virtual/ubicacion/`, payload);

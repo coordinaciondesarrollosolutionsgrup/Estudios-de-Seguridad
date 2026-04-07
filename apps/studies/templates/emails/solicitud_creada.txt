@@ -1,0 +1,8 @@
+Estimado cliente,
+
+Se ha creado la solicitud de estudio #{{ solicitud_id }} para el candidato {{ nombre }} (Cédula: {{ cedula }}).
+Estado: {{ estado }}
+
+Por favor, revise la información en el sistema.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

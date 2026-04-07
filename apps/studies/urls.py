@@ -3,7 +3,8 @@ from django.urls import path
 from .views import (
     SolicitudViewSet, EstudioViewSet, EstudioItemViewSet,
     AcademicoViewSet, LaboralViewSet, EconomicaViewSet, AnexoFotoViewSet, EstudioReferenciaViewSet,
-    ReferenciaPersonalViewSet, PatrimonioViewSet,
+    ReferenciaPersonalViewSet, PatrimonioViewSet, ClienteConfiguracionFormularioViewSet,
+    ClientePoliticaConfiguracionViewSet, HistorialConfiguracionViewSet,
 )
 from .views_pdf import estudio_pdf
 
@@ -18,6 +19,10 @@ router.register(r"anexos", AnexoFotoViewSet, basename="anexo")
 router.register(r"referencias", EstudioReferenciaViewSet, basename="referencia")
 router.register(r"refs-personales", ReferenciaPersonalViewSet, basename="refpersonal")
 router.register(r"patrimonios", PatrimonioViewSet, basename="patrimonio")
+
+router.register(r"config-formulario", ClienteConfiguracionFormularioViewSet, basename="config-formulario")
+router.register(r"politicas", ClientePoliticaConfiguracionViewSet, basename="politicas")
+router.register(r"historial-config", HistorialConfiguracionViewSet, basename="historial-config")
 
 
 urlpatterns = [

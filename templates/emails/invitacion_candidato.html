@@ -1,0 +1,76 @@
+{% extends 'emails/base_email.html' %}
+{% block content %}
+<p style="font-size:13px;font-weight:600;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px 0;">Invitación de Estudio</p>
+<h1 style="margin:0 0 8px 0;font-size:24px;color:#1e293b;">¡Ha sido invitado/a!</h1>
+<p style="margin:0 0 24px 0;color:#64748b;font-size:14px;">Solicitud <strong>#{{ solicitud_id }}</strong></p>
+
+<p style="margin:0 0 16px 0;color:#475569;">Estimado/a <strong>{{ nombre }} {{ apellido }}</strong>,</p>
+<p style="margin:0 0 24px 0;color:#475569;">
+  Ha sido invitado/a a completar su estudio de seguridad. A continuación encontrará sus datos de acceso a la plataforma:
+</p>
+
+{% if access_deadline %}
+<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;margin:0 0 24px 0;">
+  <p style="margin:0;color:#92400e;font-size:13px;">
+    <strong>Importante:</strong> Este acceso estará activo por {{ access_hours|default:24 }} horas desde su creación.
+    Fecha límite: <strong>{{ access_deadline|date:"d/m/Y H:i" }}</strong>.
+    Después de ese tiempo, el usuario quedará inactivo.
+  </p>
+</div>
+{% endif %}
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:24px;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Cédula</span>
+            <span style="color:#1e293b;font-size:15px;">{{ cedula }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Usuario</span>
+            <span style="color:#1e293b;font-size:15px;font-family:monospace;">{{ usuario }}</span>
+          </td>
+        </tr>
+        {% if temp_password %}
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Contraseña temporal</span>
+            <span style="color:#1e293b;font-size:15px;font-family:monospace;background:#fef3c7;padding:2px 8px;border-radius:4px;font-weight:700;">{{ temp_password }}</span>
+          </td>
+        </tr>
+        {% endif %}
+        <tr>
+          <td style="padding:8px 0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Número de solicitud</span>
+            <span style="color:#1e293b;font-size:15px;font-weight:700;">#{{ solicitud_id }}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+{% if temp_password %}
+<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;margin-bottom:24px;">
+  <p style="margin:0;color:#92400e;font-size:13px;">
+    <strong>Importante:</strong> Por su seguridad, le recomendamos cambiar su contraseña temporal al ingresar por primera vez.
+  </p>
+</div>
+{% endif %}
+
+<p style="margin:0 0 24px 0;color:#475569;">Haga clic en el botón a continuación para acceder a la plataforma y completar la información solicitada:</p>
+
+<div style="text-align:center;">
+  <a href="{{ link }}" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#ffffff;padding:13px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.5px;">
+    Acceder a la plataforma
+  </a>
+</div>
+
+<p style="margin:24px 0 0 0;color:#94a3b8;font-size:13px;text-align:center;">
+  Si tiene problemas para ingresar, comuníquese con la empresa que solicitó el estudio.
+</p>
+{% endblock %}

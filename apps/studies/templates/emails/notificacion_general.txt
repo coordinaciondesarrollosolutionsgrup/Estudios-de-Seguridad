@@ -1,0 +1,13 @@
+
+Estimado analista,
+
+Se le ha asignado una nueva solicitud de estudio.
+
+Datos del candidato:
+Nombre: {{ candidato_nombre }}
+Cédula: {{ candidato_cedula }}
+Número de solicitud: {{ solicitud_id }}
+
+Por favor, revise la información en el sistema.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

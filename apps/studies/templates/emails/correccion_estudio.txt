@@ -1,0 +1,10 @@
+
+Estimado candidato,
+
+Se ha solicitado una corrección en el estudio #{{ estudio_id }}.
+
+Observación: {{ observacion }}
+
+Por favor, revise la información en el sistema y realice las acciones necesarias.
+
+Este mensaje fue generado automáticamente por el sistema de estudios. No responda a este correo.

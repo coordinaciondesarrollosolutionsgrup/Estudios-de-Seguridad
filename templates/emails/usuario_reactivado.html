@@ -1,0 +1,56 @@
+{% extends 'emails/base_email.html' %}
+{% block content %}
+<p style="font-size:13px;font-weight:600;color:#2563eb;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px 0;">Notificación de Cuenta</p>
+<h1 style="margin:0 0 8px 0;font-size:24px;color:#1e293b;">Usuario reactivado</h1>
+<p style="margin:0 0 24px 0;color:#64748b;font-size:14px;">Acceso habilitado nuevamente</p>
+
+<p style="margin:0 0 16px 0;color:#475569;">Hola <strong>{{ nombre }}</strong>,</p>
+<p style="margin:0 0 24px 0;color:#475569;">
+  Te informamos que tu usuario en eConfia fue reactivado por el administrador y ya puedes volver a ingresar a la plataforma.
+</p>
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:24px;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Usuario</span>
+            <span style="color:#1e293b;font-size:15px;font-family:monospace;">{{ username }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Rol</span>
+            <span style="color:#1e293b;font-size:15px;">{{ rol }}</span>
+          </td>
+        </tr>
+        {% if es_candidato and access_deadline %}
+        <tr>
+          <td style="padding:8px 0;">
+            <span style="color:#94a3b8;font-size:12px;text-transform:uppercase;font-weight:600;display:block;margin-bottom:2px;">Límite de acceso</span>
+            <span style="color:#1e293b;font-size:15px;font-weight:700;">{{ access_deadline|date:"d/m/Y H:i" }}</span>
+          </td>
+        </tr>
+        {% endif %}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{% if es_candidato and access_deadline %}
+<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;margin-bottom:24px;">
+  <p style="margin:0;color:#92400e;font-size:13px;">
+    <strong>Importante:</strong> Tu acceso como candidato estará activo hasta
+    <strong>{{ access_deadline|date:"d/m/Y H:i" }}</strong>.
+    Después de esa fecha, tu usuario volverá a quedar inactivo.
+  </p>
+</div>
+{% endif %}
+
+<div style="text-align:center;">
+  <a href="{{ frontend_url }}" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#ffffff;padding:13px 36px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;letter-spacing:0.5px;">
+    Ingresar a la plataforma
+  </a>
+</div>
+{% endblock %}

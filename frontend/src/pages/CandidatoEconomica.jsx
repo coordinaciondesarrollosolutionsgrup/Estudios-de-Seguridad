@@ -1,5 +1,5 @@
 // src/pages/CandidatoEconomica.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState,Fragment } from "react";
 import { useOutletContext } from "react-router-dom";
 import api from "../api/axios";
 
@@ -635,7 +635,7 @@ export default function CandidatoEconomica() {
                 const r = form.productos[p.id] || emptyProducto();
                 const isMulti = MULTI_IDS.has(p.id);
                 return (
-                  <>
+                  <Fragment key={p.id}>
                     <tr key={p.id} className="border-t border-white/10 align-top">
                       <td className="px-2 py-2">{p.label}</td>
 
@@ -798,7 +798,7 @@ export default function CandidatoEconomica() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

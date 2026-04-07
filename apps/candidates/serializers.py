@@ -1,5 +1,84 @@
+# -------------------- Serializador Descripción de la vivienda --------------------
 from rest_framework import serializers
-from .models import Candidato, CandidatoSoporte
+from .models import DescripcionVivienda, Candidato, CandidatoSoporte, InformacionFamiliar, Pariente, Hijo, Conviviente
+
+class DescripcionViviendaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DescripcionVivienda
+        fields = [
+            "id", "estado_vivienda", "iluminacion", "ventilacion", "aseo", "servicios_publicos",
+            "condiciones", "tenencia", "tipo_inmueble", "espacios", "vias_aproximacion",
+            "created_at", "updated_at"
+        ]
+# -------------------- Serializadores Información Familiar --------------------
+class ParienteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Pariente
+        fields = ["id", "parentesco", "nombre_apellido", "ocupacion", "telefono", "ciudad", "vive_con_el"]
+
+class HijoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Hijo
+        fields = ["id", "nombre_apellido", "ocupacion", "vive_con_el"]
+
+class ConvivienteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conviviente
+        fields = ["id", "parentesco", "nombre_apellido", "ocupacion", "telefono"]
+
+class InformacionFamiliarSerializer(serializers.ModelSerializer):
+    parientes = ParienteSerializer(many=True)
+    hijos = HijoSerializer(many=True, required=False)
+    convivientes = ConvivienteSerializer(many=True, required=False)
+
+    class Meta:
+        model = InformacionFamiliar
+        fields = [
+            "id", "estado_civil", "nombre_pareja", "ocupacion_pareja", "empresa_pareja", "observaciones",
+            "parientes", "hijos", "convivientes", "created_at", "updated_at"
+        ]
+
+    def validate(self, data):
+        # Validar que estado_civil no esté vacío
+        if not data.get("estado_civil"):
+            raise serializers.ValidationError({"estado_civil": "Este campo es obligatorio."})
+        # Ya no se exige al menos un pariente
+        return data
+
+    def create(self, validated_data):
+        parientes_data = validated_data.pop("parientes", [])
+        hijos_data = validated_data.pop("hijos", [])
+        convivientes_data = validated_data.pop("convivientes", [])
+        info = InformacionFamiliar.objects.create(**validated_data)
+        for pariente in parientes_data:
+            Pariente.objects.create(informacion_familiar=info, **pariente)
+        for hijo in hijos_data:
+            Hijo.objects.create(informacion_familiar=info, **hijo)
+        for conviviente in convivientes_data:
+            Conviviente.objects.create(informacion_familiar=info, **conviviente)
+        return info
+
+    def update(self, instance, validated_data):
+        parientes_data = validated_data.pop("parientes", [])
+        hijos_data = validated_data.pop("hijos", [])
+        convivientes_data = validated_data.pop("convivientes", [])
+        # Actualizar campos simples
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        # Actualizar parientes
+        instance.parientes.all().delete()
+        for pariente in parientes_data:
+            Pariente.objects.create(informacion_familiar=instance, **pariente)
+        # Actualizar hijos
+        instance.hijos.all().delete()
+        for hijo in hijos_data:
+            Hijo.objects.create(informacion_familiar=instance, **hijo)
+        # Actualizar convivientes
+        instance.convivientes.all().delete()
+        for conviviente in convivientes_data:
+            Conviviente.objects.create(informacion_familiar=instance, **conviviente)
+        return instance
 
 
 class CandidatoSoporteSerializer(serializers.ModelSerializer):
@@ -34,6 +113,10 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
     foto_url = serializers.SerializerMethodField()
     soportes = serializers.SerializerMethodField()
 
+    # Datos familiares y de vivienda
+    informacion_familiar  = serializers.SerializerMethodField()
+    descripcion_vivienda  = serializers.SerializerMethodField()
+
     class Meta:
         model = Candidato
         fields = [
@@ -44,6 +127,9 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
             "fecha_nacimiento","estatura_cm",
             "grupo_sanguineo","sexo","sexo_label","estado_civil","estado_civil_label",
             "fecha_expedicion","lugar_expedicion",
+
+            # nuevos campos biográficos
+            "nacionalidad","discapacidad","idiomas","estado_migratorio",
 
             # opcionales
             "libreta_militar_numero","libreta_militar_clase","libreta_militar_distrito",
@@ -67,6 +153,9 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
             # nuevos auxiliares
             "municipio","departamento",
             "foto_url","soportes",
+
+            # familiares y vivienda
+            "informacion_familiar","descripcion_vivienda",
         ]
 
     def get_municipio(self, obj):
@@ -74,6 +163,24 @@ class CandidatoBioSerializer(serializers.ModelSerializer):
 
     def get_departamento(self, obj):
         return obj.departamento_nombre or None
+
+    def get_informacion_familiar(self, obj):
+        try:
+            info = getattr(obj, "informacion_familiar", None)
+            if not info:
+                return None
+            return InformacionFamiliarSerializer(info).data
+        except Exception:
+            return None
+
+    def get_descripcion_vivienda(self, obj):
+        try:
+            dv = getattr(obj, "descripcion_vivienda", None)
+            if not dv:
+                return None
+            return DescripcionViviendaSerializer(dv).data
+        except Exception:
+            return None
 
     def get_foto_url(self, obj):
         request = self.context.get("request")

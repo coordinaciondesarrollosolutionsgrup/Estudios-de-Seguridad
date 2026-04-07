@@ -18,10 +18,23 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
+from django.db import connection
 from apps.studies import geo_views
 
 
+def health_check(request):
+    try:
+        connection.ensure_connection()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    status_code = 200 if db_ok else 503
+    return JsonResponse({"status": "ok" if db_ok else "error", "db": db_ok}, status=status_code)
+
+
 urlpatterns = [
+    path("api/health/", health_check, name="health_check"),
     path("admin/", admin.site.urls),
 
     # Auth (JWT)

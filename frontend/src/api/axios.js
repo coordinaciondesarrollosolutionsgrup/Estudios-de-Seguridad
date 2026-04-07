@@ -11,4 +11,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Detecta sesión expirada (401) y notifica a la app
+let _sessionExpiredFired = false;
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    const status = err?.response?.status;
+    const url = err?.config?.url || "";
+    const isAuthEndpoint = url.includes("/auth/login/") || url.includes("/auth/token") || url.includes("/auth/password-reset/");
+    if (status === 401 && !isAuthEndpoint && !_sessionExpiredFired) {
+      _sessionExpiredFired = true;
+      window.dispatchEvent(new CustomEvent("session:expired"));
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default api;
