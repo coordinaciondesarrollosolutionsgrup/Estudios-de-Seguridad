@@ -1884,6 +1884,36 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             filename=f"acta_consentimientos_estudio_{est.id}{tipo_suffix}.pdf",
         )
 
+    @action(detail=True, methods=["post"], url_path="resetear_consentimientos")
+    def resetear_consentimientos(self, request, pk=None):
+        """Analista/Admin reinicia los consentimientos para que el candidato vuelva a firmar."""
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+        if rol not in {"ADMIN", "ANALISTA"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        updated = (
+            EstudioConsentimiento.objects
+            .filter(estudio=est)
+            .update(
+                aceptado=False,
+                firmado_at=None,
+                ip=None,
+                user_agent=None,
+                firma=None,
+                firma_draw=None,
+                firma_imagen=None,
+            )
+        )
+        est.autorizacion_firmada = False
+        if hasattr(est, "autorizacion_fecha"):
+            est.autorizacion_fecha = None
+            est.save(update_fields=["autorizacion_firmada", "autorizacion_fecha"])
+        else:
+            est.save(update_fields=["autorizacion_firmada"])
+
+        return Response({"detail": f"{updated} consentimiento(s) reiniciado(s). El candidato debera volver a firmar."})
+
     @action(detail=True, methods=["post"])
     def firmar_consentimiento(self, request, pk=None):
         est = self.get_object()

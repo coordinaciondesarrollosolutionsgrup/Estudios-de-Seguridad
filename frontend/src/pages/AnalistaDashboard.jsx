@@ -706,20 +706,49 @@ export default function AnalistaDashboard() {
       );
     };
 
+    const [reseteando, setReseteando] = useState(false);
+    const resetearConsentimientos = async () => {
+      if (!sel?.id) return;
+      if (!window.confirm("¿Seguro que deseas reiniciar los consentimientos? El candidato deberá volver a firmarlos todos.")) return;
+      setReseteando(true);
+      try {
+        const { data } = await api.post(`/api/estudios/${sel.id}/resetear_consentimientos/`);
+        toast.success(data.detail || "Consentimientos reiniciados.");
+        await openEstudio(sel.id);
+      } catch (e) {
+        toast.error(e?.response?.data?.detail || "No se pudo reiniciar.");
+      } finally {
+        setReseteando(false);
+      }
+    };
+
     return (
       <div className="space-y-3">
-        {/* Botón descargar todos */}
-        {firmados.length > 0 && (
+        {/* Acciones de consentimientos */}
+        <div className="flex flex-wrap gap-2">
+          {firmados.length > 0 && (
+            <button
+              onClick={() => descargarConsentPdf("")}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+              </svg>
+              Descargar todos
+            </button>
+          )}
           <button
-            onClick={() => descargarConsentPdf("")}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition"
+            onClick={resetearConsentimientos}
+            disabled={reseteando}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-600 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-white transition"
+            title="Reinicia todos los consentimientos para que el candidato vuelva a firmar"
           >
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            Descargar todos los formatos firmados
+            {reseteando ? "Reiniciando..." : "Pedir nueva firma"}
           </button>
-        )}
+        </div>
 
         {cons.map((c) => {
           const combinedSrc = pick(c, ["firma_url", "firma_combinada_url"]);

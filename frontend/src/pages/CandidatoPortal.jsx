@@ -227,14 +227,15 @@ export default function CandidatoPortal() {
       // consentimientos (solo si no está cerrado ni en evaluación)
       const cons = Array.isArray(full.consentimientos) ? full.consentimientos : [];
       const allConsOk = cons.length ? cons.every((c) => c.aceptado) : !!full.autorizacion_firmada;
-      const localDone = localStorage.getItem(`consents:${full.id}:done`) === "1";
 
       // ⬇️ prioridad a la evaluación si viene marcada por el backend
       const mustShowEval = Boolean(full.mostrar_evaluacion);
       setShowEval(mustShowEval);
       const closedNow = s === "CERRADO" || Boolean(full.finalizado_at) || d === "APTO" || d === "NO_APTO";
 
-      setShowConsent(!allConsOk && !localDone && !closedNow && !mustShowEval);
+      // Si el analista resetea consentimientos, el wizard debe volver a mostrarse
+      // aunque existan marcas locales anteriores.
+      setShowConsent(!allConsOk && !closedNow && !mustShowEval);
 
       // aviso de cierre + redirección (solo si NO hay evaluación pendiente)
       const seenKey = `study:${full.id}:closedSeen`;
@@ -575,11 +576,10 @@ export default function CandidatoPortal() {
         <ConsentWizard
           show={showConsent}
           studyId={estudio.id}
-          onDone={async () => {
-            try { localStorage.setItem(`consents:${estudio.id}:done`, "1"); } catch {}
-            setShowConsent(false);
-            await load();
-          }}
+            onDone={async () => {
+              setShowConsent(false);
+              await load();
+            }}
           onCancel={() => setShowConsent(false)}
         />
       )}
