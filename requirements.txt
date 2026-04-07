@@ -1,11 +1,50 @@
+# ── Core Django ──────────────────────────────────────────────────────────────
 Django==5.0.7
+asgiref==3.9.2
+sqlparse==0.5.3
+
+# ── Django REST / Auth ────────────────────────────────────────────────────────
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
+PyJWT==2.10.1
 django-cors-headers==4.4.0
+django-environ==0.12.0
+
+# ── Servidor ──────────────────────────────────────────────────────────────────
+gunicorn==23.0.0
+
+# ── Imágenes ──────────────────────────────────────────────────────────────────
 Pillow==10.4.0
+
+# ── Generación de PDF ─────────────────────────────────────────────────────────
 reportlab==4.2.2
+weasyprint==66.0
+fonttools==4.60.1
+pydyf==0.11.0
+pyphen==0.17.2
+cssselect2==0.8.0
+tinycss2==1.4.0
+tinyhtml5==2.0.0
+html5lib==1.1
+webencodings==0.5.1
 
+# ── HTTP / Requests ───────────────────────────────────────────────────────────
+requests==2.32.5
+urllib3==2.5.0
+certifi==2025.8.3
+charset-normalizer==3.4.3
+chardet==5.2.0
+idna==3.10
 
-django-environ>=0.11
+# ── Compresión ────────────────────────────────────────────────────────────────
+Brotli==1.1.0
+zopfli==0.2.3.post1
 
-requests>=2.32
+# ── Utilidades ────────────────────────────────────────────────────────────────
+six==1.17.0
+packaging==25.0
+cffi==2.0.0
+pycparser==2.23
+
+# ── Base de datos (instalar según entorno) ────────────────────────────────────
+psycopg2-binary>=2.9
