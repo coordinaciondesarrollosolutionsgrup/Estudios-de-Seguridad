@@ -6,6 +6,7 @@ import ProgressBar from "../components/ProgressBar";
 import AlertaConsideracionCliente from "../components/AlertaConsideracionCliente";
 import ThreeBackground from "../components/ThreeBackground";
 import { useToast } from "../components/Toast";
+import { jsPDF } from "jspdf";
 
 import {
 
@@ -92,6 +93,7 @@ export default function ClienteDashboard() {
   const [creando, setCreando] = useState(false);
 
   const [generating, setGenerating] = useState(false);
+  const [generatingModalPdf, setGeneratingModalPdf] = useState(false);
   const [reportStyle, setReportStyle] = useState("gerencial");
   const resumenCacheRef = useRef(new Map());
   const resumenReqSeqRef = useRef(0);
@@ -352,6 +354,145 @@ export default function ClienteDashboard() {
       toast.error("No se pudo descargar el documento de consentimiento.");
     }
   }, [toast]);
+
+  const descargarModalSeccionPdf = useCallback(() => {
+    if (!modalSeccion || !sel?.estudio_id) {
+      toast.error("No hay informacion del modulo para descargar.");
+      return;
+    }
+    try {
+      setGeneratingModalPdf(true);
+      const info = modalSeccion.info || {};
+      const total = Array.isArray(info.estado) ? info.estado.length : 0;
+      const validados = Number(info.validados || 0);
+      const hallazgos = Number(info.hallazgos || 0);
+      const progreso = total > 0 ? Math.round((validados / total) * 100) : 0;
+      const nombreModulo = (modalSeccion.nombre || "MODULO").replaceAll("_", " ");
+
+      const fc = info.fill_candidato;
+      const estadoCandidato = fc === null ? "Verificacion interna" : fc ? "Candidato lleno OK" : "Sin informacion";
+      const estadoAnalista = hallazgos > 0
+        ? "Con hallazgos"
+        : total > 0 && validados === total
+          ? "Analista valido"
+          : validados > 0
+            ? "En revision"
+            : "Pendiente de revision";
+
+      const estadoGeneral = hallazgos > 0 ? "Requiere atencion" : progreso === 100 ? "Consolidado" : "En seguimiento";
+      const recomendacion = hallazgos > 0
+        ? "Se recomienda revision puntual de hallazgos antes de continuar con el cierre del estudio."
+        : progreso >= 70
+          ? "Modulo con avance favorable. Continuar con validacion de soportes para cierre tecnico."
+          : "Modulo en etapa inicial. Se recomienda completar informacion y mantener seguimiento del analista.";
+
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const now = new Date();
+      const fecha = now.toLocaleString("es-CO");
+      const empresa = me?.empresa_nombre || me?.empresa || "Empresa cliente";
+
+      doc.setFillColor(9, 23, 51);
+      doc.rect(0, 0, 595, 120, "F");
+      doc.setFillColor(20, 60, 120);
+      doc.rect(0, 120, 595, 6, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      doc.text("Informe ejecutivo del modulo", 40, 52);
+      doc.setFontSize(11.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Estudio #${sel.estudio_id}  |  ${nombreModulo}`, 40, 78);
+      doc.text(`Empresa: ${empresa}`, 40, 96);
+      doc.text(`Generado: ${fecha}`, 370, 96);
+
+      const cardY = 150;
+      const cardW = 122;
+      const cardH = 74;
+      const gap = 12;
+      const cards = [
+        { label: "Items", value: `${total}`, color: [59, 130, 246] },
+        { label: "Validados", value: `${validados}`, color: [16, 185, 129] },
+        { label: "Hallazgos", value: `${hallazgos}`, color: [245, 158, 11] },
+        { label: "Progreso", value: `${progreso}%`, color: [14, 165, 233] },
+      ];
+
+      cards.forEach((card, i) => {
+        const x = 40 + i * (cardW + gap);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(x, cardY, cardW, cardH, 10, 10, "F");
+        doc.setDrawColor(card.color[0], card.color[1], card.color[2]);
+        doc.setLineWidth(1);
+        doc.roundedRect(x, cardY, cardW, cardH, 10, 10, "S");
+        doc.setFillColor(card.color[0], card.color[1], card.color[2]);
+        doc.roundedRect(x + 10, cardY + 10, 10, 10, 3, 3, "F");
+        doc.setTextColor(71, 85, 105);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text(card.label, x + 25, cardY + 19);
+        doc.setTextColor(15, 23, 42);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(21);
+        doc.text(card.value, x + 12, cardY + 54);
+      });
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("Estado del modulo", 40, 265);
+
+      doc.setFillColor(241, 245, 249);
+      doc.roundedRect(40, 278, 515, 102, 10, 10, "F");
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(40, 278, 515, 102, 10, 10, "S");
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Estado candidato: ${estadoCandidato}`, 55, 304);
+      doc.text(`Estado analista: ${estadoAnalista}`, 55, 324);
+      doc.text(`Estado general: ${estadoGeneral}`, 55, 344);
+
+      doc.setFillColor(226, 232, 240);
+      doc.roundedRect(55, 356, 350, 10, 4, 4, "F");
+      doc.setFillColor(37, 99, 235);
+      doc.roundedRect(55, 356, Math.max(16, (350 * progreso) / 100), 10, 4, 4, "F");
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(10);
+      doc.text(`Progreso de validacion: ${progreso}%`, 415, 364);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("Recomendacion ejecutiva", 40, 420);
+
+      doc.setFillColor(239, 246, 255);
+      doc.roundedRect(40, 433, 515, 88, 10, 10, "F");
+      doc.setDrawColor(125, 211, 252);
+      doc.roundedRect(40, 433, 515, 88, 10, 10, "S");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(30, 58, 138);
+      const recLines = doc.splitTextToSize(recomendacion, 485);
+      doc.text(recLines, 55, 458);
+
+      doc.setFillColor(9, 23, 51);
+      doc.rect(0, 812, 595, 30, "F");
+      doc.setTextColor(148, 163, 184);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("Documento informativo generado desde el Portal del cliente.", 40, 831);
+      doc.text(`Estudio #${sel.estudio_id}`, 520, 831, { align: "right" });
+
+      const safeModulo = nombreModulo.toLowerCase().replace(/\s+/g, "_");
+      doc.save(`modulo_${safeModulo}_estudio_${sel.estudio_id}.pdf`);
+    } catch (e) {
+      console.error(e);
+      toast.error("No se pudo generar el PDF del modulo.");
+    } finally {
+      setGeneratingModalPdf(false);
+    }
+  }, [modalSeccion, sel, me, toast]);
 
   /* ---------- Derivados ---------- */
   const empresaNombre = useMemo(
@@ -1564,8 +1705,16 @@ export default function ClienteDashboard() {
                 {FILL_ST.msg}
               </div>
 
-              {/* Boton cerrar */}
-              <div className="px-6 pb-6">
+              {/* Acciones modal */}
+              <div className="px-6 pb-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={descargarModalSeccionPdf}
+                  disabled={generatingModalPdf}
+                  className="w-full py-3 rounded-xl text-white font-semibold text-sm tracking-wide transition hover:opacity-90 disabled:opacity-60"
+                  style={{ background: "linear-gradient(90deg,#0f766e,#06b6d4)" }}
+                >
+                  {generatingModalPdf ? "Generando PDF..." : "Descargar PDF del modulo"}
+                </button>
                 <button onClick={() => setModalSeccion(null)}
                   className="w-full py-3 rounded-xl text-white font-bold text-sm tracking-wide transition hover:opacity-90 active:scale-[.98]"
                   style={{ background: "linear-gradient(90deg,#1d4ed8,#0ea5e9)" }}>

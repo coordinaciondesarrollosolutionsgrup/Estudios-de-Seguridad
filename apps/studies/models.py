@@ -158,11 +158,33 @@ class Estudio(models.Model):
         self.save(update_fields=["estado", "observacion_analista", "decision_final", "finalizado_at", "updated_at"])
 
 
+class SlotDisponibilidadAnalista(models.Model):
+    """Slot de disponibilidad que el analista ofrece al candidato para agendar la reunión."""
+    estudio = models.ForeignKey(
+        "studies.Estudio", on_delete=models.CASCADE,
+        related_name="slots_disponibilidad"
+    )
+    fecha = models.DateField()
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField(null=True, blank=True)
+    creado_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["fecha", "hora_inicio"]
+
+    def __str__(self):
+        return f"Slot {self.fecha} {self.hora_inicio} — estudio #{self.estudio_id}"
+
+
 class DisponibilidadReunionCandidato(models.Model):
-    """Disponibilidad que el candidato propone para su reunión virtual."""
+    """Slot seleccionado por el candidato para la reunión virtual."""
     estudio = models.OneToOneField(
         "studies.Estudio", on_delete=models.CASCADE,
         related_name="disponibilidad_reunion"
+    )
+    slot_seleccionado = models.ForeignKey(
+        SlotDisponibilidadAnalista, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="seleccionado_por"
     )
     fecha_propuesta = models.DateField(null=True, blank=True)
     hora_inicio = models.TimeField(null=True, blank=True)

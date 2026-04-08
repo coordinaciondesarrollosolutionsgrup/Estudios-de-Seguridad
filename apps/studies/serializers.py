@@ -657,7 +657,7 @@ class ClienteConfiguracionFormularioSerializer(serializers.ModelSerializer):
 
 
 # Serializer para polÃ­ticas configurables del cliente
-from .models import ClientePoliticaConfiguracion, HistorialConfiguracion, DisponibilidadReunionCandidato
+from .models import ClientePoliticaConfiguracion, HistorialConfiguracion, DisponibilidadReunionCandidato, SlotDisponibilidadAnalista
 
 class ClientePoliticaConfiguracionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -680,12 +680,29 @@ class HistorialConfiguracionSerializer(serializers.ModelSerializer):
         return obj.usuario.username if obj.usuario else 'desconocido'
 
 
+class SlotDisponibilidadAnalistaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SlotDisponibilidadAnalista
+        fields = ['id', 'estudio', 'fecha', 'hora_inicio', 'hora_fin', 'creado_at']
+        read_only_fields = ['id', 'estudio', 'creado_at']
+
+
 class DisponibilidadReunionSerializer(serializers.ModelSerializer):
+    slot_seleccionado = SlotDisponibilidadAnalistaSerializer(read_only=True)
+    slot_seleccionado_id = serializers.PrimaryKeyRelatedField(
+        queryset=SlotDisponibilidadAnalista.objects.all(),
+        source='slot_seleccionado',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = DisponibilidadReunionCandidato
         fields = [
-            'id', 'estudio', 'fecha_propuesta', 'hora_inicio',
-            'hora_fin', 'nota', 'creada_at', 'actualizada_at',
+            'id', 'estudio', 'slot_seleccionado', 'slot_seleccionado_id',
+            'fecha_propuesta', 'hora_inicio', 'hora_fin', 'nota',
+            'creada_at', 'actualizada_at',
         ]
         read_only_fields = ['id', 'estudio', 'creada_at', 'actualizada_at']
 

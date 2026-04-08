@@ -7,6 +7,7 @@ import io
 import os
 import base64
 import urllib.request
+from types import SimpleNamespace
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -67,6 +68,7 @@ from .models import (
     ClientePoliticaConfiguracion,
     HistorialConfiguracion,
     DisponibilidadReunionCandidato,
+    SlotDisponibilidadAnalista,
 )
 from .serializers import (
     SolicitudCreateSerializer,
@@ -87,6 +89,7 @@ from .serializers import (
     ClientePoliticaConfiguracionSerializer,
     HistorialConfiguracionSerializer,
     DisponibilidadReunionSerializer,
+    SlotDisponibilidadAnalistaSerializer,
 )
 
 # ======================================================================================
@@ -117,7 +120,7 @@ def _map_ref_payload(r):
     com = (r.get("comentario") or r.get("observacion") or "").strip()
 
     out = {"nombres": full, "apellidos": apellidos, "telefono": tel, "relacion": rel, "comentario": com}
-    # mínimo: al menos nombre o teléfono
+    # mÃ­nimo: al menos nombre o telÃ©fono
     if not (out["nombres"] or out["telefono"]):
         return {}
     return out
@@ -129,7 +132,7 @@ def _collect_refs_from_request(data):
       { "referencias": [ ... ] }
       { "laborales": [ ... ], "personales": [ ... ] }
       [ ... ]  (lista directa)
-    Devuelve lista normalizada, máx 6 (3+3).
+    Devuelve lista normalizada, mÃ¡x 6 (3+3).
     """
     refs = []
     if isinstance(data, list):
@@ -173,7 +176,7 @@ def _abs_file_url(request, f_or_url):
 
 
 def _draw_link_text(c, x, y, label, url, font="Helvetica", size=10, color="#60a5fa"):
-    """Dibuja texto subrayado y le agrega una anotación linkURL clickeable."""
+    """Dibuja texto subrayado y le agrega una anotaciÃ³n linkURL clickeable."""
     c.setFont(font, size)
     old = c.getFillColor()
     c.setFillColor(colors.HexColor(color))
@@ -317,7 +320,7 @@ def _bump_progreso(est: Estudio, valor) -> int:
 def _recalcular_progreso_anexos(est: Estudio) -> int:
     """
     % de anexos resueltos por tipo (archivo o no_aplica),
-    considerando únicamente los tipos vigentes que mostramos en el UI.
+    considerando Ãºnicamente los tipos vigentes que mostramos en el UI.
     Excluye 'FRENTE_ASPIRANTE'.
     """
     activos = {
@@ -414,7 +417,7 @@ def _migrate_relevant_data_from_previous_study(prev_est: Estudio, new_est: Estud
     _clone_model_rows(ReferenciaPersonal, ReferenciaPersonal.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
     _clone_model_rows(Patrimonio, Patrimonio.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
 
-    # Datos principalmente útiles para analista:
+    # Datos principalmente Ãºtiles para analista:
     _clone_model_rows(EstudioReferencia, EstudioReferencia.objects.filter(estudio=prev_est).order_by("id"), estudio_destino=new_est, candidato_destino=cand)
     _clone_model_rows(
         EstudioDocumento,
@@ -425,21 +428,21 @@ def _migrate_relevant_data_from_previous_study(prev_est: Estudio, new_est: Estud
 
 
 # ======================================================================================
-# Helper: llenado real del candidato por módulo
+# Helper: llenado real del candidato por mÃ³dulo
 # ======================================================================================
 
 def _candidato_fill(est: Estudio):
     """
-    Devuelve (fill_dict, progreso_pct) donde fill_dict mapea tipo de item →
-      True  = candidato ya ingresó datos en este módulo,
-      False = módulo vacío,
-      None  = módulo que llena el analista (N/A para candidato).
+    Devuelve (fill_dict, progreso_pct) donde fill_dict mapea tipo de item â†’
+      True  = candidato ya ingresÃ³ datos en este mÃ³dulo,
+      False = mÃ³dulo vacÃ­o,
+      None  = mÃ³dulo que llena el analista (N/A para candidato).
     """
     cand = est.solicitud.candidato
 
     fill = {}
 
-    # BIOGRAFICOS – campos clave del candidato
+    # BIOGRAFICOS â€“ campos clave del candidato
     bio_fields = ["fecha_nacimiento", "telefono", "celular", "direccion", "sexo", "estatura_cm"]
     fill["BIOGRAFICOS"] = any(getattr(cand, f, None) for f in bio_fields)
 
@@ -487,10 +490,10 @@ def _candidato_fill(est: Estudio):
     # ANEXOS_FOTOGRAFICOS
     fill["ANEXOS_FOTOGRAFICOS"] = est.anexos_foto.exists()
 
-    # LISTAS_RESTRICTIVAS – lo llena el analista, no el candidato
+    # LISTAS_RESTRICTIVAS â€“ lo llena el analista, no el candidato
     fill["LISTAS_RESTRICTIVAS"] = None
 
-    # Progreso candidato: solo módulos con valor bool (excluye None)
+    # Progreso candidato: solo mÃ³dulos con valor bool (excluye None)
     candidate_modules = [k for k, v in fill.items() if v is not None]
     filled = sum(1 for k in candidate_modules if fill[k])
     pct = round((filled / len(candidate_modules)) * 100.0, 1) if candidate_modules else 0.0
@@ -543,15 +546,15 @@ class SolicitudViewSet(viewsets.ModelViewSet):
         if not emp:
             raise ValidationError({"empresa": ["El usuario cliente no tiene empresa asociada."]})
 
-        # Marcar estudio como "a consideración del cliente" SOLO si las políticas están
-        # actualmente bloqueadas (el cliente las configuró y aún no las ha desbloqueado el admin).
-        # Si el admin desbloqueó (bloqueado=False) o el cliente nunca las configuró, no aplica.
+        # Marcar estudio como "a consideraciÃ³n del cliente" SOLO si las polÃ­ticas estÃ¡n
+        # actualmente bloqueadas (el cliente las configurÃ³ y aÃºn no las ha desbloqueado el admin).
+        # Si el admin desbloqueÃ³ (bloqueado=False) o el cliente nunca las configurÃ³, no aplica.
         from .models import ClientePoliticaConfiguracion, ClienteConfiguracionFormulario
         politicas_bloqueadas_activas = ClientePoliticaConfiguracion.objects.filter(
             empresa=emp, bloqueado=True, no_relevante=True
         ).exists()
         subitems_excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=emp, excluido=True).exists()
-        usar_politicas_cliente = politicas_bloqueadas_activas  # se activa automáticamente si políticas están bloqueadas
+        usar_politicas_cliente = politicas_bloqueadas_activas  # se activa automáticamente si polÃ­ticas estÃ¡n bloqueadas
 
         solicitud = serializer.save(empresa=emp)
         solicitud.estado = getattr(getattr(Solicitud, "Estado", None), "PENDIENTE_INVITACION", "PENDIENTE_INVITACION")
@@ -563,14 +566,14 @@ class SolicitudViewSet(viewsets.ModelViewSet):
             if previo:
                 _migrate_relevant_data_from_previous_study(previo, nuevo_estudio)
 
-        # Si se crea el Estudio aquí, marcarlo como a_consideracion_cliente si corresponde
+        # Si se crea el Estudio aquÃ­, marcarlo como a_consideracion_cliente si corresponde
         if hasattr(solicitud, "estudio"):
             estudio = solicitud.estudio
             if usar_politicas_cliente or subitems_excluidos:
                 estudio.a_consideracion_cliente = True
                 estudio.save(update_fields=["a_consideracion_cliente"])
 
-        # Asignación equitativa (round-robin): el analista con menos estudios asignados
+        # AsignaciÃ³n equitativa (round-robin): el analista con menos estudios asignados
         User = get_user_model()
         analista = None
         for scope in [
@@ -595,13 +598,13 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 tipo="NUEVA_SOLICITUD",
                 titulo=f"Nueva solicitud #{solicitud.id}",
                 cuerpo=(
-                    f"Empresa: {solicitud.empresa} – "
+                    f"Empresa: {solicitud.empresa} â€“ "
                     f"Candidato: {solicitud.candidato.nombre} {solicitud.candidato.apellido} "
                     f"({solicitud.candidato.cedula})"
                 ),
                 solicitud=solicitud,
             )
-            # Enviar notificación al analista
+            # Enviar notificaciÃ³n al analista
             if solicitud.analista and solicitud.analista.email:
                 asunto = f"Nueva solicitud asignada #{solicitud.id}"
                 mensaje = (
@@ -703,7 +706,7 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 "apellido": cand.apellido,
                 "cedula": cand.cedula,
                 "solicitud_id": solicitud.id,
-                "estado": "Su estudio ha sido enviado al analista. Espere activación.",
+                "estado": "Su estudio ha sido enviado al analista. Espere activaciÃ³n.",
             }
             mensaje_html_cliente = render_to_string("emails/invitacion_cliente.html", context_cliente)
             mensaje_txt_cliente = render_to_string("emails/invitacion_cliente.txt", context_cliente)
@@ -762,7 +765,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             if not (analista and analista.id == request.user.id):
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied("Solo el analista asignado puede editar este estudio.")
-        # Admin puede todo, los demás roles no editan
+        # Admin puede todo, los demÃ¡s roles no editan
         return None
 
     @staticmethod
@@ -802,7 +805,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
         if rol == "ANALISTA":
             vv = getattr(est, "visita_virtual", None)
-            # El propietario ve ubicación; otros analistas solo ven estado básico
+            # El propietario ve ubicaciÃ³n; otros analistas solo ven estado bÃ¡sico
             is_owner = (
                 getattr(est.solicitud, "analista", None) and
                 est.solicitud.analista.id == request.user.id
@@ -863,7 +866,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
         vv = getattr(est, "visita_virtual", None)
         if not vv:
-            return Response({"detail": "No hay reunión virtual activa para este estudio."}, status=404)
+            return Response({"detail": "No hay reuniÃ³n virtual activa para este estudio."}, status=404)
 
         vv.estado = VisitaVirtualEstado.FINALIZADA
         vv.finalizada_at = timezone.now()
@@ -880,7 +883,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
         vv = getattr(est, "visita_virtual", None)
         if not vv or vv.estado != VisitaVirtualEstado.ACTIVA:
-            return Response({"detail": "No hay reunión virtual activa."}, status=400)
+            return Response({"detail": "No hay reuniÃ³n virtual activa."}, status=400)
 
         vv.consentida_por_candidato = True
         vv.consentida_at = timezone.now()
@@ -897,15 +900,15 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
         vv = getattr(est, "visita_virtual", None)
         if not vv or vv.estado != VisitaVirtualEstado.ACTIVA:
-            return Response({"detail": "No hay reunión virtual activa."}, status=400)
+            return Response({"detail": "No hay reuniÃ³n virtual activa."}, status=400)
         if not vv.consentida_por_candidato:
-            return Response({"detail": "Debes aceptar compartir ubicación antes de enviar coordenadas."}, status=400)
+            return Response({"detail": "Debes aceptar compartir ubicaciÃ³n antes de enviar coordenadas."}, status=400)
 
         try:
             lat = Decimal(str(request.data.get("lat")))
             lng = Decimal(str(request.data.get("lng")))
         except (InvalidOperation, TypeError, ValueError):
-            return Response({"detail": "lat/lng inválidos."}, status=400)
+            return Response({"detail": "lat/lng invÃ¡lidos."}, status=400)
 
         if lat < Decimal("-90") or lat > Decimal("90") or lng < Decimal("-180") or lng > Decimal("180"):
             return Response({"detail": "lat/lng fuera de rango."}, status=400)
@@ -934,10 +937,10 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             qs = EstudioReferencia.objects.filter(estudio=est).order_by("-id")
             if qs.exists():
                 ser = EstudioReferenciaSerializer(qs, many=True, context={"request": request})
-                # ✅ el front soporta lista o {laborales,personales}; devolver lista aquí ok
+                # âœ… el front soporta lista o {laborales,personales}; devolver lista aquÃ­ ok
                 return Response(ser.data)
 
-            # 🔁 Fallback: derivar de registros Laboral si no hay referencias guardadas
+            # ðŸ” Fallback: derivar de registros Laboral si no hay referencias guardadas
             labs = (Laboral.objects
                     .filter(estudio=est)
                     .order_by("-creado"))
@@ -957,10 +960,10 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                 if len(laborales) >= 3:
                     break
 
-            # Si no tienes de dónde sacar personales, déjalo vacío.
+            # Si no tienes de dÃ³nde sacar personales, dÃ©jalo vacÃ­o.
             personales = []
 
-            # ✅ El front también soporta este formato
+            # âœ… El front tambiÃ©n soporta este formato
             return Response({"laborales": laborales, "personales": personales})
 
         # POST (append)
@@ -968,11 +971,11 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         if rol not in {"ANALISTA", "ADMIN"}:
             return Response({"detail": "Sin permiso."}, status=403)
         if (est.estado or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio está cerrado."}, status=400)
+            return Response({"detail": "El estudio estÃ¡ cerrado."}, status=400)
 
         rows = _collect_refs_from_request(request.data)
         if not rows:
-            return Response({"detail": "Payload vacío o inválido."}, status=400)
+            return Response({"detail": "Payload vacÃ­o o invÃ¡lido."}, status=400)
 
         objs = [
             EstudioReferencia(
@@ -1004,7 +1007,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         if rol not in {"ANALISTA", "ADMIN"}:
             return Response({"detail": "Sin permiso."}, status=403)
         if (est.estado or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio está cerrado."}, status=400)
+            return Response({"detail": "El estudio estÃ¡ cerrado."}, status=400)
 
         rows = _collect_refs_from_request(request.data)
 
@@ -1063,7 +1066,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         if str(getattr(request.user, "rol", "")).upper() != "CANDIDATO" or est.solicitud.candidato.email != request.user.email:
             return Response({"detail": "Solo el candidato puede responder."}, status=403)
         if (est.estado or "").upper() != "CERRADO":
-            return Response({"detail": "La evaluación se habilita cuando el estudio está cerrado."}, status=400)
+            return Response({"detail": "La evaluaciÃ³n se habilita cuando el estudio estÃ¡ cerrado."}, status=400)
 
         ev.answers = request.data.get("answers", {}) or {}
         ev.submitted_at = timezone.now()
@@ -1088,7 +1091,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                 return Response(None)
             return Response(DisponibilidadReunionSerializer(disp).data)
 
-        # POST — solo el candidato del estudio puede registrar/actualizar
+        # POST â€” solo el candidato del estudio puede registrar/actualizar
         if rol != "CANDIDATO" or est.solicitud.candidato.email != request.user.email:
             return Response({"detail": "Solo el candidato puede registrar disponibilidad."}, status=403)
 
@@ -1096,6 +1099,78 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         ser = DisponibilidadReunionSerializer(disp, data=request.data, partial=True)
         ser.is_valid(raise_exception=True)
         ser.save()
+        return Response(DisponibilidadReunionSerializer(disp).data)
+
+    @action(detail=True, methods=["get", "post"], url_path="slots-analista")
+    def slots_analista(self, request, pk=None):
+        """
+        GET  â€” candidato, analista y admin pueden ver los slots del analista.
+        POST â€” solo analista/admin puede agregar slots.
+        Body: { fecha, hora_inicio, hora_fin (opcional) }
+        """
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if request.method == "GET":
+            if rol == "CANDIDATO" and est.solicitud.candidato.email != request.user.email:
+                return Response({"detail": "Sin permiso."}, status=403)
+            if rol not in {"CANDIDATO", "ANALISTA", "ADMIN"}:
+                return Response({"detail": "Sin permiso."}, status=403)
+            slots = SlotDisponibilidadAnalista.objects.filter(estudio=est)
+            return Response(SlotDisponibilidadAnalistaSerializer(slots, many=True).data)
+
+        if rol not in {"ANALISTA", "ADMIN"}:
+            return Response({"detail": "Solo el analista puede agregar slots."}, status=403)
+
+        ser = SlotDisponibilidadAnalistaSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ser.save(estudio=est)
+        slots = SlotDisponibilidadAnalista.objects.filter(estudio=est)
+        return Response(SlotDisponibilidadAnalistaSerializer(slots, many=True).data, status=201)
+
+    @action(detail=True, methods=["delete"], url_path="slots-analista/(?P<slot_id>[0-9]+)")
+    def slot_analista_delete(self, request, pk=None, slot_id=None):
+        """DELETE â€” analista/admin elimina un slot especÃ­fico."""
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+        if rol not in {"ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+        try:
+            slot = SlotDisponibilidadAnalista.objects.get(pk=slot_id, estudio=est)
+        except SlotDisponibilidadAnalista.DoesNotExist:
+            return Response({"detail": "Slot no encontrado."}, status=404)
+        slot.delete()
+        slots = SlotDisponibilidadAnalista.objects.filter(estudio=est)
+        return Response(SlotDisponibilidadAnalistaSerializer(slots, many=True).data)
+
+    @action(detail=True, methods=["post"], url_path="seleccionar-slot")
+    def seleccionar_slot(self, request, pk=None):
+        """
+        Candidato elige un slot del analista.
+        Body: { slot_id, nota (opcional) }
+        """
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+        if rol != "CANDIDATO" or est.solicitud.candidato.email != request.user.email:
+            return Response({"detail": "Solo el candidato puede seleccionar un slot."}, status=403)
+
+        slot_id = request.data.get("slot_id")
+        nota = request.data.get("nota", "")
+        if not slot_id:
+            return Response({"detail": "Debes indicar slot_id."}, status=400)
+
+        try:
+            slot = SlotDisponibilidadAnalista.objects.get(pk=slot_id, estudio=est)
+        except SlotDisponibilidadAnalista.DoesNotExist:
+            return Response({"detail": "Slot no encontrado."}, status=404)
+
+        disp, _ = DisponibilidadReunionCandidato.objects.get_or_create(estudio=est)
+        disp.slot_seleccionado = slot
+        disp.fecha_propuesta = slot.fecha
+        disp.hora_inicio = slot.hora_inicio
+        disp.hora_fin = slot.hora_fin
+        disp.nota = nota
+        disp.save(update_fields=["slot_seleccionado", "fecha_propuesta", "hora_inicio", "hora_fin", "nota", "actualizada_at"])
         return Response(DisponibilidadReunionSerializer(disp).data)
 
     def get_queryset(self):
@@ -1145,7 +1220,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=["post"])
     def observacion(self, request, pk=None):
-        """Observación global del estudio (analista/admin)."""
+        """ObservaciÃ³n global del estudio (analista/admin)."""
         est = self.get_object()
         if getattr(request.user, "rol", None) not in ("ANALISTA", "ADMIN"):
             return Response({"detail": "Sin permiso."}, status=403)
@@ -1154,7 +1229,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             return denied
 
         if (getattr(est, "estado", "") or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio está cerrado."}, status=400)
+            return Response({"detail": "El estudio estÃ¡ cerrado."}, status=400)
 
         obs = (request.data.get("observacion") or request.data.get("comentario") or "").strip()
         Estudio.objects.filter(pk=est.pk).update(observacion_analista=obs or None)
@@ -1167,7 +1242,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         ser = self.get_serializer(est)
         data = ser.data
 
-        # ⬇️ Si es CANDIDATO y el estudio está cerrado y NO ha enviado la evaluación
+        # â¬‡ï¸ Si es CANDIDATO y el estudio estÃ¡ cerrado y NO ha enviado la evaluaciÃ³n
         if str(getattr(request.user, "rol", "")).upper() == "CANDIDATO":
             ev = getattr(est, "evaluacion", None)
             pendiente = ((est.estado or "").upper() == "CERRADO" and not (ev and ev.submitted_at))
@@ -1184,7 +1259,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         if denied:
             return denied
         if (getattr(est, "estado", "") or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio ya está cerrado."}, status=400)
+            return Response({"detail": "El estudio ya estÃ¡ cerrado."}, status=400)
 
         decision = (request.data.get("decision") or "").upper()
         if decision not in {"APTO", "NO_APTO"}:
@@ -1198,7 +1273,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             est.observacion_analista = obs
         est.save(update_fields=["decision_final", "estado", "finalizado_at", "observacion_analista"])
 
-        # ⬇️ Asegura que exista registro de evaluación para el candidato
+        # â¬‡ï¸ Asegura que exista registro de evaluaciÃ³n para el candidato
         EvaluacionTrato.objects.get_or_create(
             estudio=est,
             defaults={"candidato_user": self._candidate_user_for(est)}
@@ -1221,7 +1296,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         if getattr(request.user, "rol", None) != "CANDIDATO" or est.solicitud.candidato.email != request.user.email:
             return Response({"detail": "Solo el candidato puede enviar su estudio."}, status=403)
         if not est.editable_por_candidato:
-            return Response({"detail": "El estudio ya fue enviado o está cerrado."}, status=400)
+            return Response({"detail": "El estudio ya fue enviado o estÃ¡ cerrado."}, status=400)
 
         est.marcar_enviado_por_candidato()
         return Response(EstudioSerializer(est, context={"request": request}).data)
@@ -1240,7 +1315,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         cand = est.solicitud.candidato
         if cand and cand.email:
             context = {
-                "subject": f"Corrección requerida en estudio #{est.id}",
+                "subject": f"CorrecciÃ³n requerida en estudio #{est.id}",
                 "nombre": cand.nombre,
                 "estudio_id": est.id,
                 "observacion": obs
@@ -1292,7 +1367,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         validados = items.filter(estado="VALIDADO").count()
         hallazgos = items.filter(estado="HALLAZGO").count()
 
-        # ── Calcular llenado real del candidato por módulo ──
+        # â”€â”€ Calcular llenado real del candidato por mÃ³dulo â”€â”€
         fill, progreso_candidato = _candidato_fill(est)
 
         secciones = {}
@@ -1360,7 +1435,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             f"Progreso: {int(est.progreso or 0)}%   |   Items: {total}   Validados: {validados}   Hallazgos: {hallazgos}",
         )
         y -= 20
-        c.drawString(40, y, f"Autorización: {'Firmada' if est.autorizacion_firmada else 'Pendiente'}")
+        c.drawString(40, y, f"AutorizaciÃ³n: {'Firmada' if est.autorizacion_firmada else 'Pendiente'}")
         y -= 28
 
         # Documentos (links)
@@ -1374,7 +1449,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             for d in docs:
                 label = f"[{d.categoria or 'DOC'}] {d.nombre or 'archivo'}"
                 url = _abs_file_url(request, d.archivo)
-                c.drawString(50, y, "• ")
+                c.drawString(50, y, "â€¢ ")
                 if url:
                     _draw_link_text(c, 60, y, label, url)
                 else:
@@ -1385,21 +1460,21 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                     y = h - 40
                     c.setFont("Helvetica", 10)
         else:
-            c.drawString(50, y, "— Sin documentos —")
+            c.drawString(50, y, "â€” Sin documentos â€”")
             y -= 14
 
         y -= 10
 
-        # Anexos fotográficos (thumbnails con link)
+        # Anexos fotogrÃ¡ficos (thumbnails con link)
         c.setFont("Helvetica-Bold", 12)
-        c.drawString(40, y, "Anexos fotográficos")
+        c.drawString(40, y, "Anexos fotogrÃ¡ficos")
         y -= 20
 
         anexos = AnexoFoto.objects.filter(estudio=est).order_by("orden", "tipo", "-creado")
         if anexos.exists():
             cols = 3
             gap = 8
-            thumb_w = (w - 80 - gap * (cols - 1)) / cols  # márgenes 40/40
+            thumb_w = (w - 80 - gap * (cols - 1)) / cols  # mÃ¡rgenes 40/40
             thumb_h = thumb_w * 0.66
             x0 = 40
             col = 0
@@ -1440,7 +1515,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                     y = y_img - 18
         else:
             c.setFont("Helvetica", 10)
-            c.drawString(40, y, "— Sin anexos —")
+            c.drawString(40, y, "â€” Sin anexos â€”")
 
         c.showPage()
         c.save()
@@ -1527,14 +1602,28 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         tipo = str(request.query_params.get("tipo") or "").upper().strip()
         tipos_validos = {t.value for t in ConsentimientoTipo}
         if tipo and tipo not in tipos_validos:
-            return Response({"detail": "Tipo de consentimiento inválido."}, status=400)
+            return Response({"detail": "Tipo de consentimiento invalido."}, status=400)
 
         qs = EstudioConsentimiento.objects.filter(estudio=est, aceptado=True)
         if tipo:
             qs = qs.filter(tipo=tipo)
         consentimientos = list(qs.order_by("tipo", "id"))
+        is_draft = False
         if not consentimientos:
-            return Response({"detail": "No hay consentimientos firmados para generar PDF."}, status=404)
+            if tipo:
+                base_cons = EstudioConsentimiento.objects.filter(estudio=est, tipo=tipo).first()
+                consentimientos = [base_cons or SimpleNamespace(
+                    tipo=tipo,
+                    firmado_at=None,
+                    ip=None,
+                    user_agent=None,
+                    firma=None,
+                    firma_draw=None,
+                    firma_imagen=None,
+                )]
+                is_draft = True
+            else:
+                return Response({"detail": "No hay consentimientos firmados para generar PDF."}, status=404)
 
         empresa = getattr(getattr(est, "solicitud", None), "empresa", None)
         candidato = getattr(getattr(est, "solicitud", None), "candidato", None)
@@ -1547,7 +1636,19 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         cedula = getattr(candidato, "cedula", "") or "N/A"
         email_candidato = getattr(candidato, "email", "") or "N/A"
         now_local = timezone.localtime(timezone.now())
+        MESES_ES = {
+            1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+            7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+        }
+        fecha_generado = (
+            f"{now_local.day:02d} de {MESES_ES[now_local.month]} de {now_local.year} "
+            f"a las {now_local.strftime('%H:%M')}"
+        )
         tipo_label = dict(ConsentimientoTipo.choices)
+        total_formatos = len(consentimientos)
+        total_firmados = sum(1 for c in consentimientos if getattr(c, "firmado_at", None))
+        total_firma_digital = sum(1 for c in consentimientos if getattr(c, "firma_draw", None))
+        total_firma_imagen = sum(1 for c in consentimientos if getattr(c, "firma_imagen", None))
 
         # Textos legales por tipo de consentimiento
         CONSENT_TEXTS = {
@@ -1603,94 +1704,136 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.rect(0, 0, 3, h, stroke=0, fill=1)
 
         def draw_header():
-            # Cabecera sólida con degradado simulado (dos rectángulos)
+            # Cabecera sÃ³lida con degradado simulado (dos rectÃ¡ngulos)
             c.setFillColor(C_NAVY)
-            c.rect(0, h - 120, w, 120, stroke=0, fill=1)
+            c.rect(0, h - 130, w, 130, stroke=0, fill=1)
             c.setFillColor(C_NAVY2)
-            c.rect(0, h - 120, w, 30, stroke=0, fill=1)
+            c.rect(0, h - 130, w, 30, stroke=0, fill=1)
 
-            # Línea de acento azul bajo el header
+            # Línea de acento bajo el header
             c.setFillColor(C_ACCENT)
-            c.rect(0, h - 122, w, 3, stroke=0, fill=1)
+            c.rect(0, h - 132, w, 3, stroke=0, fill=1)
 
             # Logo de empresa
             logo = _image_reader_from_logo_url(request, logo_url)
             if logo:
-                c.drawImage(logo, 22, h - 108, width=68, height=55,
+                c.drawImage(logo, 22, h - 118, width=72, height=62,
                             preserveAspectRatio=True, mask="auto")
-                text_x = 104
+                text_x = 108
             else:
                 # Placeholder cuadrado si no hay logo
                 c.setFillColor(C_ACCENT)
-                c.roundRect(22, h - 108, 55, 55, 6, stroke=0, fill=1)
+                c.roundRect(22, h - 118, 62, 62, 8, stroke=0, fill=1)
                 c.setFillColor(C_WHITE)
-                c.setFont("Helvetica-Bold", 18)
-                c.drawCentredString(49, h - 76, nombre_empresa[:2].upper())
-                text_x = 90
+                c.setFont("Helvetica-Bold", 20)
+                c.drawCentredString(53, h - 82, nombre_empresa[:2].upper())
+                text_x = 98
 
-            # Título principal
+            # TÃ­tulo principal
             c.setFillColor(C_WHITE)
-            c.setFont("Helvetica-Bold", 16)
-            c.drawString(text_x, h - 48, "ACTA DE CONSENTIMIENTOS FIRMADOS")
+            c.setFont("Helvetica-Bold", 18)
+            c.drawString(text_x, h - 46, "ACTA DE CONSENTIMIENTOS FIRMADOS")
 
-            # Subtítulo
+            # SubtÃ­tulo
             c.setFont("Helvetica", 9)
             c.setFillColor(colors.HexColor("#93c5fd"))
-            c.drawString(text_x, h - 64, f"Estudio #{est.id}  ·  Generado el {now_local.strftime('%d de %B de %Y a las %H:%M')}")
-            c.drawString(text_x, h - 78, f"{nombre_empresa}  ·  NIT: {nit_empresa}")
+            c.drawString(text_x, h - 62, f"Estudio #{est.id}  ·  Generado el {fecha_generado}")
+            c.drawString(text_x, h - 76, f"{nombre_empresa}  ·  NIT: {nit_empresa}")
 
-            # Número de página (esquina superior derecha)
+            # NÃºmero de pÃ¡gina (esquina superior derecha)
             c.setFont("Helvetica", 8)
             c.setFillColor(colors.HexColor("#93c5fd"))
-            c.drawRightString(w - 22, h - 64, f"Página {page[0]}")
+            c.drawRightString(w - 22, h - 62, f"Página {page[0]}")
 
             # Tarjeta de datos del candidato
             c.setFillColor(colors.HexColor("#0d1f3c"))
-            c.roundRect(18, h - 168, w - 36, 42, 6, stroke=0, fill=1)
+            c.roundRect(18, h - 182, w - 36, 46, 6, stroke=0, fill=1)
             c.setStrokeColor(colors.HexColor("#1e3a5f"))
-            c.roundRect(18, h - 168, w - 36, 42, 6, stroke=1, fill=0)
+            c.roundRect(18, h - 182, w - 36, 46, 6, stroke=1, fill=0)
 
-            # Ícono persona (círculo pequeño)
+            # Ãcono persona (cÃ­rculo pequeÃ±o)
             c.setFillColor(C_ACCENT)
-            c.circle(36, h - 147, 8, stroke=0, fill=1)
+            c.circle(38, h - 159, 10, stroke=0, fill=1)
             c.setFillColor(C_WHITE)
-            c.setFont("Helvetica-Bold", 8)
-            c.drawCentredString(36, h - 150, "C")
+            c.setFont("Helvetica-Bold", 9)
+            c.drawCentredString(38, h - 162, "C")
 
             c.setFillColor(colors.HexColor("#e2e8f0"))
-            c.setFont("Helvetica-Bold", 9)
-            c.drawString(52, h - 140, nombre_candidato)
-            c.setFont("Helvetica", 8)
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(56, h - 152, nombre_candidato)
+            c.setFont("Helvetica", 8.5)
             c.setFillColor(colors.HexColor("#94a3b8"))
-            c.drawString(52, h - 153, f"C.C. {cedula}  ·  {email_candidato}")
+            c.drawString(56, h - 167, f"C.C. {cedula}  ·  {email_candidato}")
 
             # Total de formatos
             total = len(consentimientos)
-            label = f"{total} formato{'s' if total != 1 else ''} firmado{'s' if total != 1 else ''}"
+            if is_draft:
+                label = f"{total} formato{'s' if total != 1 else ''} en borrador"
+            else:
+                label = f"{total} formato{'s' if total != 1 else ''} firmado{'s' if total != 1 else ''}"
             c.setFillColor(C_GREEN)
             c.setFont("Helvetica-Bold", 8)
-            c.drawRightString(w - 28, h - 140, "✓ " + label)
+            c.drawRightString(w - 28, h - 152, ("Estado: BORRADOR - " if is_draft else "Estado: FIRMADO - ") + label)
+
+        def draw_exec_summary():
+            panel_x = 18
+            panel_y = h - 250
+            panel_w = w - 36
+            panel_h = 58
+
+            c.setFillColor(colors.HexColor("#f8fbff"))
+            c.roundRect(panel_x, panel_y, panel_w, panel_h, 7, stroke=0, fill=1)
+            c.setStrokeColor(colors.HexColor("#dbeafe"))
+            c.setLineWidth(1)
+            c.roundRect(panel_x, panel_y, panel_w, panel_h, 7, stroke=1, fill=0)
+
+            c.setFont("Helvetica-Bold", 8)
+            c.setFillColor(colors.HexColor("#1e3a8a"))
+            c.drawString(panel_x + 12, panel_y + 44, "RESUMEN EJECUTIVO")
+
+            chip_y = panel_y + 11
+            chip_h = 22
+            gap = 8
+            chip_specs = [
+                ("Formatos", f"{total_formatos}", colors.HexColor("#1d4ed8"), 88),
+                ("Firmados", f"{total_firmados}", colors.HexColor("#059669"), 88),
+                ("Firma digital", f"{total_firma_digital}", colors.HexColor("#7c3aed"), 108),
+                ("Imagen cargada", f"{total_firma_imagen}", colors.HexColor("#0ea5e9"), 110),
+            ]
+
+            cx = panel_x + 12
+            for lbl, val, col, cw in chip_specs:
+                c.setFillColor(colors.HexColor("#ffffff"))
+                c.roundRect(cx, chip_y, cw, chip_h, 6, stroke=0, fill=1)
+                c.setStrokeColor(col)
+                c.setLineWidth(0.8)
+                c.roundRect(cx, chip_y, cw, chip_h, 6, stroke=1, fill=0)
+                c.setFillColor(col)
+                c.setFont("Helvetica-Bold", 7.5)
+                c.drawString(cx + 8, chip_y + 7, f"{lbl}: {val}")
+                cx += cw + gap
 
         def draw_footer():
             c.setFillColor(C_FOOTER)
-            c.rect(0, 0, w, 32, stroke=0, fill=1)
+            c.rect(0, 0, w, 40, stroke=0, fill=1)
             c.setFillColor(C_ACCENT)
-            c.rect(0, 32, w, 1.5, stroke=0, fill=1)
-            c.setFont("Helvetica", 7)
+            c.rect(0, 40, w, 2, stroke=0, fill=1)
+            c.setFont("Helvetica", 7.5)
             c.setFillColor(colors.HexColor("#94a3b8"))
-            c.drawString(22, 19, "Documento generado automáticamente por la plataforma eConfia · Evidencia digital de consentimientos informados")
-            c.drawRightString(w - 22, 19, f"Estudio #{est.id}  ·  Página {page[0]}")
-            c.drawCentredString(w / 2, 8, now_local.strftime("Emitido el %d/%m/%Y a las %H:%M hrs"))
+            c.drawString(22, 25, "Documento generado automáticamente por la plataforma eConfia · Evidencia digital de consentimientos informados")
+            c.drawRightString(w - 22, 25, f"Estudio #{est.id}  ·  Página {page[0]}")
+            c.drawCentredString(w / 2, 12, now_local.strftime("Emitido el %d/%m/%Y a las %H:%M hrs"))
 
         # Anchos de columna fijos para metadatos
         META_COL = 90  # ancho de la etiqueta en puntos
 
         draw_page_background()
         draw_header()
-        y = h - 190
+        draw_exec_summary()
+        y = h - 270
 
         for idx, cons in enumerate(consentimientos):
-            # ── Pre-calcular contenido variable ──────────────────────────
+            # â”€â”€ Pre-calcular contenido variable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             ua_lines    = _wrap_pdf_text(cons.user_agent or "N/A", max_len=76)[:2]
             text_lines  = _wrap_pdf_text(CONSENT_TEXTS.get(cons.tipo, ""), max_len=80)
             has_ua2     = len(ua_lines) > 1
@@ -1698,10 +1841,10 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             # Alturas de secciones (fijas)
             H_HEADER    = 32   # badges + padding top
             H_SEP1      = 8    # separador tras badges
-            H_META      = 13 * 3 + (13 if has_ua2 else 0)  # 3 filas + línea ua extra
+            H_META      = 13 * 3 + (13 if has_ua2 else 0)  # 3 filas + lÃ­nea ua extra
             H_GAP1      = 10   # gap entre meta y texto legal
             H_TEXT      = len(text_lines) * 11 + 14 if text_lines else 0
-            H_GAP2      = 12   # gap entre texto legal y sección firmas
+            H_GAP2      = 12   # gap entre texto legal y secciÃ³n firmas
             H_SIG_HDR   = 22   # "EVIDENCIA DE FIRMAS" + separador
             H_SIG_LBL   = 14   # etiquetas sobre las cajas
             H_SIG_BOX   = 80   # altura de las cajas de firma
@@ -1711,13 +1854,14 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                       + H_TEXT + H_GAP2 + H_SIG_HDR
                       + H_SIG_LBL + H_SIG_BOX + H_PAD_BOT)
 
-            if y - card_h < 50:
+            if y - card_h < 55:
                 draw_footer()
                 c.showPage()
                 page[0] += 1
                 draw_page_background()
                 draw_header()
-                y = h - 190
+                draw_exec_summary()
+                y = h - 270
 
             accent_hex, border_hex, bg_hex = TIPO_COLORS.get(cons.tipo, ("#1e40af", "#dbeafe", "#eff6ff"))
             C_CARD_ACCENT = colors.HexColor(accent_hex)
@@ -1727,7 +1871,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             card_top = y
             card_bot = y - card_h
 
-            # ── Fondo y marco de tarjeta ─────────────────────────────────
+            # â”€â”€ Fondo y marco de tarjeta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             c.setFillColor(colors.HexColor("#d1d5db"))   # sombra
             c.roundRect(21, card_bot - 3, w - 40, card_h, 8, stroke=0, fill=1)
             c.setFillColor(C_CARD_BG)
@@ -1738,7 +1882,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.setFillColor(C_CARD_ACCENT)               # barra lateral
             c.roundRect(18, card_bot, 5, card_h, 4, stroke=0, fill=1)
 
-            # ── Badges ───────────────────────────────────────────────────
+            # â”€â”€ Badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             cy = card_top - 8   # cursor y (texto en baseline)
             tipo_txt = tipo_label.get(cons.tipo, cons.tipo).upper()
             badge_w = len(tipo_txt) * 5.2 + 16
@@ -1747,25 +1891,25 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.setFillColor(C_WHITE)
             c.setFont("Helvetica-Bold", 8)
             c.drawString(40, cy - 5, tipo_txt)
-
-            c.setFillColor(C_GREEN)
-            c.roundRect(32 + badge_w + 8, cy - 14, 62, 16, 8, stroke=0, fill=1)
+            status_color = colors.HexColor("#94a3b8") if is_draft else C_GREEN
+            c.setFillColor(status_color)
+            c.roundRect(32 + badge_w + 8, cy - 14, 82, 16, 8, stroke=0, fill=1)
             c.setFillColor(C_WHITE)
             c.setFont("Helvetica-Bold", 7)
-            c.drawString(32 + badge_w + 17, cy - 5, "✓  FIRMADO")
+            c.drawString(32 + badge_w + 17, cy - 5, "BORRADOR" if is_draft else "FIRMADO")
 
             c.setFont("Helvetica", 8)
             c.setFillColor(C_MUTED)
             c.drawRightString(w - 28, cy - 5, f"#{idx + 1} de {len(consentimientos)}")
 
-            # ── Separador ────────────────────────────────────────────────
+            # â”€â”€ Separador â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             cy -= H_HEADER
             c.setStrokeColor(C_CARD_BORDER)
             c.setLineWidth(0.5)
             c.line(28, cy, w - 28, cy)
             cy -= H_SEP1
 
-            # ── Metadatos ────────────────────────────────────────────────
+            # â”€â”€ Metadatos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             firmado_str = (
                 timezone.localtime(cons.firmado_at).strftime("%d/%m/%Y  %H:%M")
                 if cons.firmado_at else "N/A"
@@ -1793,7 +1937,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
             cy -= H_GAP1
 
-            # ── Bloque de texto legal ────────────────────────────────────
+            # â”€â”€ Bloque de texto legal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if text_lines:
                 block_h = H_TEXT
                 block_y = cy - block_h
@@ -1813,7 +1957,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
             cy -= H_GAP2
 
-            # ── Encabezado sección firmas ─────────────────────────────────
+            # â”€â”€ Encabezado secciÃ³n firmas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             c.setFont("Helvetica-Bold", 8)
             c.setFillColor(C_MUTED)
             c.drawString(32, cy, "EVIDENCIA DE FIRMAS")
@@ -1823,7 +1967,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.line(32, cy, w - 28, cy)
             cy -= (H_SIG_HDR - 6)
 
-            # ── Cajas de firma ───────────────────────────────────────────
+            # â”€â”€ Cajas de firma â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             sig_box_w = (w - 80) / 2
             sig_box_y = cy - H_SIG_BOX   # bottom-left de las cajas
 
@@ -1839,7 +1983,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             sig_box_w = (w - 80 - sig_gap) / 2
             sig_box_y = cy - H_SIG_BOX
 
-            # Caja izquierda — solo trazo digital
+            # Caja izquierda â€” solo trazo digital
             c.setFillColor(C_WHITE)
             c.roundRect(32, sig_box_y, sig_box_w, H_SIG_BOX, 5, stroke=0, fill=1)
             c.setStrokeColor(C_CARD_ACCENT)
@@ -1856,7 +2000,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
                 c.drawCentredString(32 + sig_box_w / 2, sig_box_y + H_SIG_BOX / 2 - 4,
                                     "Sin firma digital registrada")
 
-            # Caja derecha — imagen subida
+            # Caja derecha â€” imagen subida
             sig2_x = 32 + sig_box_w + sig_gap
             c.setFillColor(C_WHITE)
             c.roundRect(sig2_x, sig_box_y, sig_box_w, H_SIG_BOX, 5, stroke=0, fill=1)
@@ -1940,7 +2084,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         ip = (request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or request.META.get("REMOTE_ADDR"))
 
         if tipo not in {t.value for t in ConsentimientoTipo}:
-            return Response({"detail": "Tipo inválido."}, status=400)
+            return Response({"detail": "Tipo invÃ¡lido."}, status=400)
 
         cons = EstudioConsentimiento.objects.filter(estudio=est, tipo=tipo).first()
         if not cons:
@@ -2027,7 +2171,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             pct = float(request.data.get("progreso"))
         except (TypeError, ValueError):
-            return Response({"progreso": ["Debe ser un número."]}, status=400)
+            return Response({"progreso": ["Debe ser un nÃºmero."]}, status=400)
 
         _bump_progreso(est, pct)
         return Response({"ok": True, "progreso": est.progreso})
@@ -2122,7 +2266,7 @@ class EstudioItemViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Sin permiso."}, status=403)
         item = self.get_object()
         if (item.estudio.estado or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio está cerrado."}, status=400)
+            return Response({"detail": "El estudio estÃ¡ cerrado."}, status=400)
 
         comentario = (request.data.get("comentario") or "").strip()
         if comentario:
@@ -2133,13 +2277,13 @@ class EstudioItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def reportar(self, request, pk=None):
-        """Guarda irregularidad/nota en el ítem (no cambia el estado)."""
+        """Guarda irregularidad/nota en el Ã­tem (no cambia el estado)."""
         if getattr(request.user, "rol", None) not in ("ANALISTA", "ADMIN"):
             return Response({"detail": "Sin permiso."}, status=403)
 
         item = self.get_object()
         if (item.estudio.estado or "").upper() == "CERRADO":
-            return Response({"detail": "El estudio está cerrado."}, status=400)
+            return Response({"detail": "El estudio estÃ¡ cerrado."}, status=400)
 
         nota = (request.data.get("comentario") or request.data.get("motivo") or request.data.get("note") or "").strip()
         if not nota:
@@ -2190,7 +2334,7 @@ class BaseRolMixin:
 
 
 # ======================================================================================
-# Económica
+# EconÃ³mica
 # ======================================================================================
 class EconomicaViewSet(BaseRolMixin, viewsets.ModelViewSet):
     queryset = Economica.objects.select_related(
@@ -2210,7 +2354,7 @@ class EconomicaViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2263,7 +2407,7 @@ class EconomicaViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
 
 # ======================================================================================
-# Anexos Fotográficos
+# Anexos FotogrÃ¡ficos
 # ======================================================================================
 class AnexoFotoViewSet(BaseRolMixin, viewsets.ModelViewSet):
     queryset = AnexoFoto.objects.select_related(
@@ -2288,7 +2432,7 @@ class AnexoFotoViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2337,7 +2481,7 @@ class AnexoFotoViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
 
 # ======================================================================================
-# Académico
+# AcadÃ©mico
 # ======================================================================================
 class AcademicoViewSet(BaseRolMixin, viewsets.ModelViewSet):
     serializer_class = AcademicoSerializer
@@ -2365,7 +2509,7 @@ class AcademicoViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2437,7 +2581,7 @@ class LaboralViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2511,7 +2655,7 @@ class EstudioReferenciaViewSet(BaseRolMixin, viewsets.ModelViewSet):
         if rol not in ("ANALISTA", "ADMIN"):
             raise ValidationError({"detail": ["Sin permiso."]})
         if (est.estado or "").upper() == "CERRADO":
-            raise ValidationError({"detail": ["El estudio está cerrado."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ cerrado."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2551,7 +2695,7 @@ class ReferenciaPersonalViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2566,7 +2710,7 @@ class ReferenciaPersonalViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
         obj = serializer.save(estudio=est, candidato=est.solicitud.candidato)
 
-        # asegura el item del módulo
+        # asegura el item del mÃ³dulo
         _ensure_item_modulo(est, ItemTipo.REFERENCIAS_PERSONALES)
         prev = int(est.progreso or 0)
         est.recalcular()
@@ -2604,7 +2748,7 @@ class PatrimonioViewSet(BaseRolMixin, viewsets.ModelViewSet):
 
     def _bloqueo_si_no_editable(self, est: Estudio):
         if getattr(self.request.user, "rol", None) == "CANDIDATO" and not est.editable_por_candidato:
-            raise ValidationError({"detail": ["El estudio está bloqueado; no puedes editar."]})
+            raise ValidationError({"detail": ["El estudio estÃ¡ bloqueado; no puedes editar."]})
 
     def perform_create(self, serializer):
         est_id = self.request.data.get("estudio") or self.request.query_params.get("estudio")
@@ -2637,7 +2781,7 @@ class PatrimonioViewSet(BaseRolMixin, viewsets.ModelViewSet):
         self._bloqueo_si_no_editable(est)
         super().perform_destroy(instance)
     
-    # ===================== ViewSet para configuración de formulario cliente =====================
+    # ===================== ViewSet para configuraciÃ³n de formulario cliente =====================
 class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
     queryset = ClienteConfiguracionFormulario.objects.all()
     serializer_class = ClienteConfiguracionFormularioSerializer
@@ -2661,7 +2805,7 @@ class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
         emp = getattr(request.user, "empresa", None)
         if not emp:
             return Response({"detail": "El usuario cliente no tiene empresa asociada."}, status=status.HTTP_400_BAD_REQUEST)
-        # Guardar cada configuración asociada a la empresa
+        # Guardar cada configuraciÃ³n asociada a la empresa
         objs = []
         for item in serializer.validated_data if is_many else [serializer.validated_data]:
             item_key = (item["item"] or "").strip().upper()
@@ -2678,7 +2822,7 @@ class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
             objs.append(obj)
             # Registrar en historial (no bloquea el flujo si falla)
             try:
-                accion = "Excluyó subítem" if excluido else "Incluyó subítem"
+                accion = "ExcluyÃ³ subÃ­tem" if excluido else "IncluyÃ³ subÃ­tem"
                 HistorialConfiguracion.objects.create(
                     empresa=emp,
                     usuario=request.user,
@@ -2693,7 +2837,7 @@ class ClienteConfiguracionFormularioViewSet(viewsets.ModelViewSet):
         out_serializer = self.get_serializer(objs, many=True)
         return Response(out_serializer.data, status=status.HTTP_201_CREATED)      
     
-    # ViewSet para políticas configurables del cliente
+    # ViewSet para polÃ­ticas configurables del cliente
 class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
     queryset = ClientePoliticaConfiguracion.objects.all()
     serializer_class = ClientePoliticaConfiguracionSerializer
@@ -2716,11 +2860,11 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
             empresa=emp, criterio=criterio, opcion=opcion, bloqueado=True
         ).exists()
         if existe_bloqueada and not self.request.user.is_superuser:
-            raise ValidationError('La configuración de políticas está bloqueada. Contacta al administrador.')
+            raise ValidationError('La configuraciÃ³n de polÃ­ticas estÃ¡ bloqueada. Contacta al administrador.')
         serializer.save(usuario=self.request.user, empresa=emp, bloqueado=True)
         try:
             no_relevante = serializer.validated_data.get('no_relevante', True)
-            accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+            accion = "MarcÃ³ no relevante" if no_relevante else "DesmarcÃ³ no relevante"
             HistorialConfiguracion.objects.create(
                 empresa=emp,
                 usuario=self.request.user,
@@ -2735,7 +2879,7 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.bloqueado and not request.user.is_superuser:
-            return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
+            return Response({'detail': 'La configuraciÃ³n de polÃ­ticas estÃ¡ bloqueada. Contacta al administrador.'}, status=403)
         response = super().update(request, *args, **kwargs)
         instance.refresh_from_db()
         instance.bloqueado = True
@@ -2743,7 +2887,7 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
         try:
             no_relevante = request.data.get('no_relevante')
             if no_relevante is not None:
-                accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+                accion = "MarcÃ³ no relevante" if no_relevante else "DesmarcÃ³ no relevante"
                 HistorialConfiguracion.objects.create(
                     empresa=instance.empresa,
                     usuario=request.user,
@@ -2759,7 +2903,7 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.bloqueado and not request.user.is_superuser:
-            return Response({'detail': 'La configuración de políticas está bloqueada. Contacta al administrador.'}, status=403)
+            return Response({'detail': 'La configuraciÃ³n de polÃ­ticas estÃ¡ bloqueada. Contacta al administrador.'}, status=403)
         response = super().partial_update(request, *args, **kwargs)
         instance.refresh_from_db()
         instance.bloqueado = True
@@ -2767,7 +2911,7 @@ class ClientePoliticaConfiguracionViewSet(viewsets.ModelViewSet):
         try:
             no_relevante = request.data.get('no_relevante')
             if no_relevante is not None:
-                accion = "Marcó no relevante" if no_relevante else "Desmarcó no relevante"
+                accion = "MarcÃ³ no relevante" if no_relevante else "DesmarcÃ³ no relevante"
                 HistorialConfiguracion.objects.create(
                     empresa=instance.empresa,
                     usuario=request.user,
@@ -2793,3 +2937,4 @@ class HistorialConfiguracionViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_superuser:
             return HistorialConfiguracion.objects.all()
         return HistorialConfiguracion.objects.none()
+

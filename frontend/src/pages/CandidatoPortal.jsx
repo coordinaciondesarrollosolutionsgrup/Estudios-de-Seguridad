@@ -2,7 +2,6 @@
 import { Outlet, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/axios";
-import { getDisponibilidadReunion, saveDisponibilidadReunion } from "../api/studies";
 import ProgressBar from "../components/ProgressBar";
 import ConsentWizard from "../components/ConsentWizard";
 import ModulesNav from "../components/ModulesNav";
@@ -27,9 +26,11 @@ export default function CandidatoPortal() {
   const lastGeoPushRef = useRef(0);
   const [showGeoConsent, setShowGeoConsent] = useState(false);
 
-  // Disponibilidad reunión
+  // Slots del analista y selección del candidato
+  const [slots, setSlots] = useState([]);
   const [disponibilidad, setDisponibilidad] = useState(null);
-  const [dispForm, setDispForm] = useState({ fecha_propuesta: "", hora_inicio: "", hora_fin: "", nota: "" });
+  const [slotSeleccionadoId, setSlotSeleccionadoId] = useState(null);
+  const [notaSlot, setNotaSlot] = useState("");
   const [dispBusy, setDispBusy] = useState(false);
   const [dispMsg, setDispMsg] = useState("");
 
@@ -104,29 +105,37 @@ export default function CandidatoPortal() {
 
   const loadDisponibilidad = async (estudioId) => {
     try {
-      const { data } = await getDisponibilidadReunion(estudioId);
-      setDisponibilidad(data);
-      setDispForm({
-        fecha_propuesta: data.fecha_propuesta || "",
-        hora_inicio: data.hora_inicio || "",
-        hora_fin: data.hora_fin || "",
-        nota: data.nota || "",
-      });
+      const [{ data: slotsData }, { data: dispData }] = await Promise.all([
+        api.get(`/api/estudios/${estudioId}/slots-analista/`),
+        api.get(`/api/estudios/${estudioId}/disponibilidad-reunion/`),
+      ]);
+      setSlots(Array.isArray(slotsData) ? slotsData : []);
+      if (dispData) {
+        setDisponibilidad(dispData);
+        setSlotSeleccionadoId(dispData.slot_seleccionado?.id || null);
+        setNotaSlot(dispData.nota || "");
+      }
     } catch {
-      // no hay registro aún, dejar form vacío
+      // sin slots aún
     }
   };
 
-  const guardarDisponibilidad = async () => {
-    if (!estudio?.id) return;
+  const seleccionarSlot = async () => {
+    if (!estudio?.id || !slotSeleccionadoId) {
+      setDispMsg("Selecciona un horario.");
+      return;
+    }
     setDispBusy(true);
     setDispMsg("");
     try {
-      await saveDisponibilidadReunion(estudio.id, dispForm);
-      setDispMsg("Disponibilidad guardada.");
-      await loadDisponibilidad(estudio.id);
-    } catch {
-      setDispMsg("Error al guardar. Intenta de nuevo.");
+      const { data } = await api.post(`/api/estudios/${estudio.id}/seleccionar-slot/`, {
+        slot_id: slotSeleccionadoId,
+        nota: notaSlot,
+      });
+      setDisponibilidad(data);
+      setDispMsg("¡Horario confirmado!");
+    } catch (e) {
+      setDispMsg(e?.response?.data?.detail || "Error al confirmar. Intenta de nuevo.");
     } finally {
       setDispBusy(false);
     }
@@ -417,64 +426,68 @@ export default function CandidatoPortal() {
             </div>
           </div>
 
-          {/* Disponibilidad para reunión virtual */}
-          {!loading && estudio && !isClosed && (
+          {/* Horarios disponibles propuestos por el analista */}
+          {!loading && estudio && !isClosed && slots.length > 0 && (
             <div className="mx-4 mb-3">
-              <div className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-4 text-white">
-                <div className="font-semibold text-sm mb-3 text-indigo-200">
-                  Indica tu disponibilidad para la reunión virtual
+              <div className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-4 text-white space-y-3">
+                <div className="font-semibold text-sm text-indigo-200">
+                  Elige el horario para tu reunión virtual
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                  <div>
-                    <label className="block text-xs text-white/60 mb-1">Fecha</label>
-                    <input
-                      type="date"
-                      value={dispForm.fecha_propuesta}
-                      onChange={(e) => setDispForm((f) => ({ ...f, fecha_propuesta: e.target.value }))}
-                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
-                    />
+
+                {/* Ya eligió */}
+                {disponibilidad?.slot_seleccionado ? (
+                  <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-200 text-sm">
+                    <div className="font-semibold mb-1">Horario confirmado</div>
+                    <div>{disponibilidad.slot_seleccionado.fecha} a las {disponibilidad.slot_seleccionado.hora_inicio}
+                      {disponibilidad.slot_seleccionado.hora_fin ? ` — ${disponibilidad.slot_seleccionado.hora_fin}` : ""}
+                    </div>
+                    {disponibilidad.nota && (
+                      <div className="mt-1 text-emerald-200/70 text-xs">Nota: {disponibilidad.nota}</div>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-xs text-white/60 mb-1">Hora inicio</label>
-                    <input
-                      type="time"
-                      value={dispForm.hora_inicio}
-                      onChange={(e) => setDispForm((f) => ({ ...f, hora_inicio: e.target.value }))}
-                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-white/60 mb-1">Hora fin</label>
-                    <input
-                      type="time"
-                      value={dispForm.hora_fin}
-                      onChange={(e) => setDispForm((f) => ({ ...f, hora_fin: e.target.value }))}
-                      className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50"
-                    />
-                  </div>
-                </div>
-                <div className="mb-3">
-                  <label className="block text-xs text-white/60 mb-1">Nota (opcional)</label>
-                  <textarea
-                    rows={2}
-                    value={dispForm.nota}
-                    onChange={(e) => setDispForm((f) => ({ ...f, nota: e.target.value }))}
-                    placeholder="Ej: solo disponible en la mañana..."
-                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50 resize-none"
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={guardarDisponibilidad}
-                    disabled={dispBusy}
-                    className="px-4 py-1.5 rounded-full text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-60 transition"
-                  >
-                    {dispBusy ? "Guardando..." : "Guardar disponibilidad"}
-                  </button>
-                  {dispMsg && (
-                    <span className="text-xs text-indigo-200">{dispMsg}</span>
-                  )}
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      {slots.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => setSlotSeleccionadoId(s.id)}
+                          className={`w-full text-left rounded-xl px-4 py-2.5 text-sm border transition ${
+                            slotSeleccionadoId === s.id
+                              ? "border-indigo-400/60 bg-indigo-600/30 text-indigo-100"
+                              : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                          }`}
+                        >
+                          <span className="font-medium">{s.fecha}</span>
+                          <span className="mx-2 text-white/40">|</span>
+                          <span>{s.hora_inicio}{s.hora_fin ? ` — ${s.hora_fin}` : ""}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-white/50 mb-1">Nota (opcional)</label>
+                      <textarea
+                        rows={2}
+                        value={notaSlot}
+                        onChange={(e) => setNotaSlot(e.target.value)}
+                        placeholder="Ej: tengo alguna dificultad con ese horario..."
+                        className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={seleccionarSlot}
+                        disabled={dispBusy || !slotSeleccionadoId}
+                        className="px-4 py-1.5 rounded-full text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 transition"
+                      >
+                        {dispBusy ? "Confirmando..." : "Confirmar horario"}
+                      </button>
+                      {dispMsg && <span className="text-xs text-indigo-200">{dispMsg}</span>}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

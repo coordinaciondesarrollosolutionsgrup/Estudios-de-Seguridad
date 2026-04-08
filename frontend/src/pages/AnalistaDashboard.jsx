@@ -191,6 +191,9 @@ export default function AnalistaDashboard() {
   const [meetingUrlDraft, setMeetingUrlDraft] = useState("");
   const [evaluacion, setEvaluacion] = useState(null);
   const [disponibilidadReunion, setDisponibilidadReunion] = useState(null);
+  const [slots, setSlots] = useState([]);
+  const [slotForm, setSlotForm] = useState({ fecha: "", hora_inicio: "", hora_fin: "" });
+  const [slotBusy, setSlotBusy] = useState(false);
 
   // "Ampliar detalle"
   const [wide, setWide] = useState(false);
@@ -361,6 +364,47 @@ export default function AnalistaDashboard() {
     }
   };
 
+  const loadSlots = async (id) => {
+    try {
+      const { data } = await api.get(`/api/estudios/${id}/slots-analista/`);
+      setSlots(Array.isArray(data) ? data : []);
+    } catch {
+      setSlots([]);
+    }
+  };
+
+  const agregarSlot = async () => {
+    if (!sel?.id || !slotForm.fecha || !slotForm.hora_inicio) {
+      toast.error("Fecha y hora inicio son obligatorios.");
+      return;
+    }
+    setSlotBusy(true);
+    try {
+      const { data } = await api.post(`/api/estudios/${sel.id}/slots-analista/`, slotForm);
+      setSlots(Array.isArray(data) ? data : []);
+      setSlotForm({ fecha: "", hora_inicio: "", hora_fin: "" });
+      toast.success("Slot agregado.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No se pudo agregar el slot.");
+    } finally {
+      setSlotBusy(false);
+    }
+  };
+
+  const eliminarSlot = async (slotId) => {
+    if (!sel?.id) return;
+    setSlotBusy(true);
+    try {
+      const { data } = await api.delete(`/api/estudios/${sel.id}/slots-analista/${slotId}/`);
+      setSlots(Array.isArray(data) ? data : []);
+      toast.success("Slot eliminado.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No se pudo eliminar el slot.");
+    } finally {
+      setSlotBusy(false);
+    }
+  };
+
   const iniciarVisitaVirtual = async () => {
     if (!sel?.id) return;
     const url = (meetingUrlDraft || "").trim();
@@ -436,6 +480,7 @@ export default function AnalistaDashboard() {
       // Cargar evaluacion y disponibilidad en paralelo (sin bloquear)
       api.get(`/api/estudios/${id}/evaluacion/`).then((r) => setEvaluacion(r.data)).catch(() => setEvaluacion(null));
       api.get(`/api/estudios/${id}/disponibilidad-reunion/`).then((r) => setDisponibilidadReunion(r.data)).catch(() => setDisponibilidadReunion(null));
+      loadSlots(id);
       setTab("CANDIDATO");
     } catch {
       setSel(null);
@@ -445,6 +490,7 @@ export default function AnalistaDashboard() {
       setVisitaVirtual(null);
       setEvaluacion(null);
       setDisponibilidadReunion(null);
+      setSlots([]);
     }
   };
 
@@ -2113,6 +2159,12 @@ export default function AnalistaDashboard() {
               resumen={resumen}
               evaluacion={evaluacion}
               disponibilidadReunion={disponibilidadReunion}
+              slots={slots}
+              slotForm={slotForm}
+              setSlotForm={setSlotForm}
+              slotBusy={slotBusy}
+              agregarSlot={agregarSlot}
+              eliminarSlot={eliminarSlot}
               TabCandidato={TabCandidato}
               TabPorTipo={TabPorTipo}
               TabCentrales={TabCentrales}
@@ -2143,6 +2195,12 @@ export default function AnalistaDashboard() {
             resumen={resumen}
             evaluacion={evaluacion}
             disponibilidadReunion={disponibilidadReunion}
+            slots={slots}
+            slotForm={slotForm}
+            setSlotForm={setSlotForm}
+            slotBusy={slotBusy}
+            agregarSlot={agregarSlot}
+            eliminarSlot={eliminarSlot}
             TabCandidato={TabCandidato}
             TabPorTipo={TabPorTipo}
             TabCentrales={TabCentrales}
@@ -2287,6 +2345,12 @@ export function Detalle({
   resumen,
   evaluacion,
   disponibilidadReunion,
+  slots = [],
+  slotForm,
+  setSlotForm,
+  slotBusy,
+  agregarSlot,
+  eliminarSlot,
   TabCandidato,
   TabPorTipo,
   TabCentrales,
@@ -2425,20 +2489,93 @@ export function Detalle({
             )}
           </div>
 
-          {/* Disponibilidad para reunión indicada por el candidato */}
-          {disponibilidadReunion?.fecha_propuesta && (
-            <div className="rounded-2xl border border-indigo-400/25 bg-indigo-500/10 p-3 text-white">
-              <div className="font-semibold text-sm text-indigo-200 mb-2">
-                Disponibilidad indicada por el candidato
+          {/* Calendario de disponibilidad del analista */}
+          {isOwner && (
+            <div className="rounded-2xl border border-violet-400/25 bg-violet-500/10 p-4 text-white space-y-3">
+              <div className="font-semibold text-sm text-violet-200">Proponer disponibilidad al candidato</div>
+
+              {/* Formulario agregar slot */}
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                <div>
+                  <label className="block text-xs text-white/50 mb-1">Fecha</label>
+                  <input
+                    type="date"
+                    value={slotForm?.fecha || ""}
+                    onChange={(e) => setSlotForm((f) => ({ ...f, fecha: e.target.value }))}
+                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-white/50 mb-1">Hora inicio</label>
+                  <input
+                    type="time"
+                    value={slotForm?.hora_inicio || ""}
+                    onChange={(e) => setSlotForm((f) => ({ ...f, hora_inicio: e.target.value }))}
+                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-white/50 mb-1">Hora fin (opcional)</label>
+                  <input
+                    type="time"
+                    value={slotForm?.hora_fin || ""}
+                    onChange={(e) => setSlotForm((f) => ({ ...f, hora_fin: e.target.value }))}
+                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
+                  />
+                </div>
+                <button
+                  onClick={agregarSlot}
+                  disabled={slotBusy}
+                  className="rounded-xl bg-violet-600/80 hover:bg-violet-600 text-white px-3 py-2 text-sm font-semibold transition disabled:opacity-60 whitespace-nowrap"
+                >
+                  {slotBusy ? "..." : "+ Agregar"}
+                </button>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-xs text-white/80">
-                <div><span className="text-white/50">Fecha:</span> {disponibilidadReunion.fecha_propuesta}</div>
-                <div><span className="text-white/50">Hora inicio:</span> {disponibilidadReunion.hora_inicio || "—"}</div>
-                <div><span className="text-white/50">Hora fin:</span> {disponibilidadReunion.hora_fin || "—"}</div>
-              </div>
-              {disponibilidadReunion.nota && (
-                <div className="mt-1 text-xs text-white/70">
-                  <span className="text-white/50">Nota:</span> {disponibilidadReunion.nota}
+
+              {/* Lista de slots */}
+              {slots.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="text-xs text-white/50 font-medium uppercase tracking-wide">Slots ofrecidos</div>
+                  {slots.map((s) => {
+                    const elegido = disponibilidadReunion?.slot_seleccionado?.id === s.id;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm border transition ${
+                          elegido
+                            ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200"
+                            : "border-white/10 bg-white/5 text-white/80"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {elegido && <span className="text-emerald-400 text-xs font-bold">✓ Elegido</span>}
+                          <span>{s.fecha}</span>
+                          <span className="text-white/50">|</span>
+                          <span>{s.hora_inicio}{s.hora_fin ? ` — ${s.hora_fin}` : ""}</span>
+                        </div>
+                        <button
+                          onClick={() => eliminarSlot(s.id)}
+                          disabled={slotBusy}
+                          className="text-xs text-rose-400/70 hover:text-rose-400 transition disabled:opacity-40"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-white/40 italic">Aún no has agregado slots de disponibilidad.</div>
+              )}
+
+              {/* Nota del candidato si seleccionó */}
+              {disponibilidadReunion?.slot_seleccionado && (
+                <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                  <span className="font-semibold">Candidato eligió:</span>{" "}
+                  {disponibilidadReunion.slot_seleccionado.fecha} a las {disponibilidadReunion.slot_seleccionado.hora_inicio}
+                  {disponibilidadReunion.nota && (
+                    <div className="mt-1 text-emerald-200/70">Nota: {disponibilidadReunion.nota}</div>
+                  )}
                 </div>
               )}
             </div>
