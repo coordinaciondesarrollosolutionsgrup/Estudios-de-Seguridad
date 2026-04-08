@@ -13,9 +13,11 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="django-insecure-ehzymbds%cwv#)pu2
 DEBUG = env.bool("DJANGO_DEBUG", default=True)
 
 ALLOWED_HOSTS = [
-    'conecta.econfia.co',  # tu subdominio
-    'localhost',            # opcional, útil para desarrollo
-    '127.0.0.1',            # opcional, útil para desarrollo
+    'econfia.store',
+    'www.econfia.store',
+    'conecta.econfia.co',
+    'localhost',
+    '127.0.0.1',
 ]
 
 # URL del frontend (prod en tu subdominio; en dev usa localhost)
@@ -114,6 +116,10 @@ CORS_ALLOW_ALL_ORIGINS = env.bool("DJANGO_CORS_ALLOW_ALL", default=False)
 CORS_ALLOWED_ORIGINS = env.list(
     "DJANGO_CORS_ALLOWED_ORIGINS",
     default=[
+        "http://econfia.store",
+        "http://www.econfia.store",
+        "https://econfia.store",
+        "https://www.econfia.store",
         "https://conecta.econfia.co",
         "https://econfia.co",
         "https://www.econfia.co",
@@ -127,6 +133,10 @@ CORS_ALLOWED_ORIGINS = env.list(
 CSRF_TRUSTED_ORIGINS = env.list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     default=[
+        "http://econfia.store",
+        "http://www.econfia.store",
+        "https://econfia.store",
+        "https://www.econfia.store",
         "https://conecta.econfia.co",
         "https://econfia.co",
         "https://www.econfia.co",
