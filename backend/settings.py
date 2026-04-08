@@ -92,7 +92,7 @@ DATABASES = {
 AUTH_USER_MODEL = "accounts.User"
 
 # --- Static/Media ---
-STATIC_URL = "/django_static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "static"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -133,10 +133,6 @@ CORS_ALLOWED_ORIGINS = env.list(
 CSRF_TRUSTED_ORIGINS = env.list(
     "DJANGO_CSRF_TRUSTED_ORIGINS",
     default=[
-        "http://econfia.store",
-        "http://www.econfia.store",
-        "https://econfia.store",
-        "https://www.econfia.store",
         "https://conecta.econfia.co",
         "https://econfia.co",
         "https://www.econfia.co",
