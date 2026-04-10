@@ -26,13 +26,25 @@ export default function CandidatoPortal() {
   const lastGeoPushRef = useRef(0);
   const [showGeoConsent, setShowGeoConsent] = useState(false);
 
-  // Slots del analista y selección del candidato
+  // Slots del analista y selección del candidato (sistema legacy)
   const [slots, setSlots] = useState([]);
   const [disponibilidad, setDisponibilidad] = useState(null);
   const [slotSeleccionadoId, setSlotSeleccionadoId] = useState(null);
   const [notaSlot, setNotaSlot] = useState("");
   const [dispBusy, setDispBusy] = useState(false);
   const [dispMsg, setDispMsg] = useState("");
+
+  // Nuevo sistema de agendamiento tipo cita médica
+  const [reunionInfo, setReunionInfo] = useState(null);          // { reunion, fecha_limite, vencido }
+  const [slotsDisponibles, setSlotsDisponibles] = useState([]);  // slots libres del analista
+  const [reunionFechaLimite, setReunionFechaLimite] = useState(null);
+  const [reunionVencido, setReunionVencido] = useState(false);
+  const [reunionSlotId, setReunionSlotId] = useState(null);
+  const [reunionNota, setReunionNota] = useState("");
+  const [reunionBusy, setReunionBusy] = useState(false);
+  const [reunionMsg, setReunionMsg] = useState("");
+  const [reunionAviso, setReunionAviso] = useState("");
+  const [fechaFiltro, setFechaFiltro] = useState(null); // fecha seleccionada en el calendario
 
   // “pin” local para que el progreso no baje cuando el estudio está congelado
   const progressPinRef = useRef(null);
@@ -141,6 +153,76 @@ export default function CandidatoPortal() {
     }
   };
 
+  // ── Nuevo sistema de agendamiento tipo cita médica ──
+
+  const loadReunionAgendada = async (estudioId) => {
+    try {
+      const [{ data: reunionData }, { data: slotsData }] = await Promise.all([
+        api.get(`/api/estudios/${estudioId}/reunion-agendada/`),
+        api.get(`/api/estudios/${estudioId}/reunion-agendada/slots-disponibles/`),
+      ]);
+      // reunion-agendada puede retornar { reunion, fecha_limite } o el objeto directamente
+      const reunion = reunionData?.slot ? reunionData : null;
+      setReunionInfo(reunion);
+      setReunionFechaLimite(reunionData?.fecha_limite || slotsData?.fecha_limite || null);
+      setReunionVencido(slotsData?.vencido || false);
+      setReunionAviso(slotsData?.mensaje || "");
+      const slots = Array.isArray(slotsData?.slots) ? slotsData.slots : [];
+      setSlotsDisponibles(slots);
+      if (reunion) {
+        setReunionSlotId(reunion.slot?.id || null);
+        setReunionNota(reunion.nota || "");
+      } else if (!slots.some((slot) => slot.fecha === fechaFiltro)) {
+        setFechaFiltro(slots[0]?.fecha || null);
+      }
+    } catch {
+      setReunionInfo(null);
+      setReunionFechaLimite(null);
+      setReunionVencido(false);
+      setSlotsDisponibles([]);
+      setReunionAviso("");
+    }
+  };
+
+  const agendarReunionSlot = async () => {
+    if (!estudio?.id || !reunionSlotId) {
+      setReunionMsg("Selecciona un horario disponible.");
+      return;
+    }
+    setReunionBusy(true);
+    setReunionMsg("");
+    try {
+      const { data } = await api.post(`/api/estudios/${estudio.id}/reunion-agendada/agendar/`, {
+        slot_id: reunionSlotId,
+        nota: reunionNota,
+      });
+      setReunionInfo(data);
+      setReunionMsg("¡Reunión agendada exitosamente!");
+      await loadReunionAgendada(estudio.id);
+    } catch (e) {
+      setReunionMsg(e?.response?.data?.detail || "Error al agendar. Intenta de nuevo.");
+    } finally {
+      setReunionBusy(false);
+    }
+  };
+
+  const cancelarReunionAgendada = async () => {
+    if (!estudio?.id) return;
+    setReunionBusy(true);
+    setReunionMsg("");
+    try {
+      await api.post(`/api/estudios/${estudio.id}/reunion-agendada/cancelar/`);
+      setReunionInfo(null);
+      setReunionSlotId(null);
+      setReunionMsg("Reunión cancelada. Puedes elegir otro horario.");
+      await loadReunionAgendada(estudio.id);
+    } catch (e) {
+      setReunionMsg(e?.response?.data?.detail || "No se pudo cancelar.");
+    } finally {
+      setReunionBusy(false);
+    }
+  };
+
   const loadVisitaVirtual = async (estudioId) => {
     try {
       const { data } = await api.get(`/api/estudios/${estudioId}/visita-virtual/`);
@@ -219,7 +301,7 @@ export default function CandidatoPortal() {
       const { data: full } = await api.get(`/api/estudios/${first.id}/`);
       setEstudio(full);
       await loadVisitaVirtual(full.id);
-      await loadDisponibilidad(full.id);
+      await loadReunionAgendada(full.id);
 
       // fijar pin si corresponde
       const s = (full.estado || "").toUpperCase();
@@ -345,6 +427,15 @@ export default function CandidatoPortal() {
     return d === "APTO" || d === "NO_APTO";
   }, [estudio?.decision_final]);
 
+  const formatearFecha = (valor) => {
+    if (!valor) return "—";
+    return new Date(`${valor}T00:00:00`).toLocaleDateString("es-CO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
   return (
     <div className="relative min-h-screen">
       {/* Fondo */}
@@ -426,65 +517,135 @@ export default function CandidatoPortal() {
             </div>
           </div>
 
-          {/* Horarios disponibles propuestos por el analista */}
-          {!loading && estudio && !isClosed && slots.length > 0 && (
+          {/* ══ Nuevo sistema de agendamiento tipo cita médica ══ */}
+          {!loading && estudio && !isClosed && (
             <div className="mx-4 mb-3">
-              <div className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-4 text-white space-y-3">
-                <div className="font-semibold text-sm text-indigo-200">
-                  Elige el horario para tu reunión virtual
+              <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-4 text-white space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-sm text-sky-200">Agendar reunión virtual de seguridad</div>
+                  {reunionFechaLimite && (
+                    <div className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      reunionVencido
+                        ? "bg-rose-500/20 text-rose-300"
+                        : "bg-sky-500/20 text-sky-300"
+                    }`}>
+                      {reunionVencido ? "Plazo vencido" : `Plazo: ${formatearFecha(reunionFechaLimite)}`}
+                    </div>
+                  )}
                 </div>
 
-                {/* Ya eligió */}
-                {disponibilidad?.slot_seleccionado ? (
-                  <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-200 text-sm">
-                    <div className="font-semibold mb-1">Horario confirmado</div>
-                    <div>{disponibilidad.slot_seleccionado.fecha} a las {disponibilidad.slot_seleccionado.hora_inicio}
-                      {disponibilidad.slot_seleccionado.hora_fin ? ` — ${disponibilidad.slot_seleccionado.hora_fin}` : ""}
+                {/* Ya tiene reunión agendada y activa */}
+                {reunionInfo && (reunionInfo.estado === "PENDIENTE" || reunionInfo.estado === "CONFIRMADA") ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-200 text-sm space-y-1">
+                      <div className="font-semibold">Reunión agendada</div>
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        <span>
+                          <span className="text-white/50 text-xs">Fecha: </span>
+                          {reunionInfo.slot?.fecha}
+                        </span>
+                        <span>
+                          <span className="text-white/50 text-xs">Hora: </span>
+                          {reunionInfo.slot?.hora_inicio?.slice(0, 5)} — {reunionInfo.slot?.hora_fin?.slice(0, 5)}
+                        </span>
+                        <span>
+                          <span className="text-white/50 text-xs">Estado: </span>
+                          {reunionInfo.estado}
+                        </span>
+                      </div>
+                      {reunionInfo.nota && (
+                        <div className="text-emerald-200/70 text-xs">Nota: {reunionInfo.nota}</div>
+                      )}
                     </div>
-                    {disponibilidad.nota && (
-                      <div className="mt-1 text-emerald-200/70 text-xs">Nota: {disponibilidad.nota}</div>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={cancelarReunionAgendada}
+                        disabled={reunionBusy}
+                        className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-600/70 hover:bg-rose-600 disabled:opacity-50 transition"
+                      >
+                        {reunionBusy ? "Cancelando..." : "Cancelar reunión"}
+                      </button>
+                      {reunionMsg && <span className="text-xs text-sky-200">{reunionMsg}</span>}
+                    </div>
+                  </div>
+                ) : reunionVencido ? (
+                  <div className="rounded-xl border border-rose-400/20 bg-rose-500/8 p-3 text-rose-200 text-sm">
+                    El plazo de 3 días hábiles para agendar la reunión ha vencido. Contacta al analista.
+                  </div>
+                ) : slotsDisponibles.length === 0 ? (
+                  <div className="text-xs text-white/40 italic text-center py-3">
+                    {reunionAviso ||
+                      (!estudio?.habilitado_candidato_at
+                        ? "El estudio aún no ha sido habilitado. Cuando el analista lo active, tendrás 3 días hábiles para agendar."
+                        : "El analista no tiene horarios disponibles en este momento. Espera a que registre su disponibilidad.")}
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      {slots.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => setSlotSeleccionadoId(s.id)}
-                          className={`w-full text-left rounded-xl px-4 py-2.5 text-sm border transition ${
-                            slotSeleccionadoId === s.id
-                              ? "border-indigo-400/60 bg-indigo-600/30 text-indigo-100"
-                              : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                          }`}
-                        >
-                          <span className="font-medium">{s.fecha}</span>
-                          <span className="mx-2 text-white/40">|</span>
-                          <span>{s.hora_inicio}{s.hora_fin ? ` — ${s.hora_fin}` : ""}</span>
-                        </button>
-                      ))}
-                    </div>
+                    {/* Selector de fecha */}
+                    {(() => {
+                      const fechas = [...new Set(slotsDisponibles.map((s) => s.fecha))].sort();
+                      const fechaActiva = fechaFiltro || fechas[0];
+                      const slotsDeFecha = slotsDisponibles.filter((s) => s.fecha === fechaActiva);
+                      return (
+                        <div className="space-y-3">
+                          {/* Pestañas de fecha */}
+                          <div className="flex gap-2 flex-wrap">
+                            {fechas.map((f) => (
+                              <button
+                                key={f}
+                                onClick={() => { setFechaFiltro(f); setReunionSlotId(null); }}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition ${
+                                  fechaActiva === f
+                                    ? "border-sky-400/60 bg-sky-600/30 text-sky-100"
+                                    : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+                                }`}
+                              >
+                                {new Date(f + "T00:00:00").toLocaleDateString("es-CO", { weekday: "short", month: "short", day: "numeric" })}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Horarios del día seleccionado */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {slotsDeFecha.map((s) => (
+                              <button
+                                key={s.id}
+                                onClick={() => setReunionSlotId(s.id)}
+                                className={`rounded-xl px-3 py-2.5 text-sm border transition text-center ${
+                                  reunionSlotId === s.id
+                                    ? "border-sky-400/60 bg-sky-600/30 text-sky-100 font-semibold"
+                                    : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                                }`}
+                              >
+                                <div>{s.hora_inicio?.slice(0, 5)}</div>
+                                <div className="text-xs text-white/40">— {s.hora_fin?.slice(0, 5)}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div>
                       <label className="block text-xs text-white/50 mb-1">Nota (opcional)</label>
                       <textarea
                         rows={2}
-                        value={notaSlot}
-                        onChange={(e) => setNotaSlot(e.target.value)}
-                        placeholder="Ej: tengo alguna dificultad con ese horario..."
-                        className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-indigo-400/50 resize-none"
+                        value={reunionNota}
+                        onChange={(e) => setReunionNota(e.target.value)}
+                        placeholder="Algún comentario sobre el horario elegido..."
+                        className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-sky-400/50 resize-none"
                       />
                     </div>
 
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={seleccionarSlot}
-                        disabled={dispBusy || !slotSeleccionadoId}
-                        className="px-4 py-1.5 rounded-full text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 transition"
+                        onClick={agendarReunionSlot}
+                        disabled={reunionBusy || !reunionSlotId}
+                        className="px-4 py-1.5 rounded-full text-xs font-semibold bg-sky-600/80 hover:bg-sky-600 disabled:opacity-50 transition"
                       >
-                        {dispBusy ? "Confirmando..." : "Confirmar horario"}
+                        {reunionBusy ? "Agendando..." : "Confirmar reunión"}
                       </button>
-                      {dispMsg && <span className="text-xs text-indigo-200">{dispMsg}</span>}
+                      {reunionMsg && <span className="text-xs text-sky-200">{reunionMsg}</span>}
                     </div>
                   </>
                 )}

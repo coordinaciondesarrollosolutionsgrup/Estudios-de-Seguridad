@@ -1,5 +1,6 @@
 ﻿# apps/studies/serializers.py
 from rest_framework import serializers
+from django.utils import timezone
 from django.utils.module_loading import import_string
 from apps.candidates.serializers import CandidatoBioSerializer
 
@@ -19,6 +20,8 @@ from .models import (
     ReferenciaPersonal,
     Patrimonio,
     DisponibilidadReunionCandidato,
+    DisponibilidadAnalista,
+    ReunionVirtualAgendada,
 )
 from apps.candidates.models import Candidato
 from apps.accounts.models import Empresa
@@ -398,6 +401,8 @@ class EstudioSerializer(serializers.ModelSerializer):
     alerta_estudio_recurrente = serializers.SerializerMethodField()
     estudios_previos_count = serializers.SerializerMethodField()
     ultimo_estudio_previo_id = serializers.SerializerMethodField()
+    fecha_limite_agendamiento = serializers.SerializerMethodField()
+    plazo_agendamiento_vencido = serializers.SerializerMethodField()
 
     class Meta:
         model = Estudio
@@ -406,7 +411,7 @@ class EstudioSerializer(serializers.ModelSerializer):
             "empresa", "candidato", "analista", "es_propietario",
             "autorizacion_firmada", "autorizacion_fecha",
             "progreso", "score_cuantitativo", "nivel_cualitativo",
-            "estado", "enviado_at", "observacion_analista",
+            "estado", "habilitado_candidato_at", "enviado_at", "observacion_analista",
             "decision_final", "finalizado_at",
             "editable_por_candidato",
             "items", "consentimientos",
@@ -415,6 +420,8 @@ class EstudioSerializer(serializers.ModelSerializer):
             "alerta_estudio_recurrente",
             "estudios_previos_count",
             "ultimo_estudio_previo_id",
+            "fecha_limite_agendamiento",
+            "plazo_agendamiento_vencido",
         ]
         read_only_fields = fields
 
@@ -478,6 +485,16 @@ class EstudioSerializer(serializers.ModelSerializer):
     def get_ultimo_estudio_previo_id(self, obj):
         prev = self._previos_qs(obj).order_by("-solicitud__created_at", "-id").first()
         return prev.id if prev else None
+
+    def get_fecha_limite_agendamiento(self, obj):
+        fecha_limite = obj.fecha_limite_agendamiento()
+        return fecha_limite.isoformat() if fecha_limite else None
+
+    def get_plazo_agendamiento_vencido(self, obj):
+        fecha_limite = obj.fecha_limite_agendamiento()
+        if not fecha_limite:
+            return False
+        return timezone.localdate() > fecha_limite
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -705,4 +722,93 @@ class DisponibilidadReunionSerializer(serializers.ModelSerializer):
             'creada_at', 'actualizada_at',
         ]
         read_only_fields = ['id', 'estudio', 'creada_at', 'actualizada_at']
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Nuevo sistema de agendamiento tipo cita médica
+# ──────────────────────────────────────────────────────────────────────────────
+
+class DisponibilidadAnalistaSerializer(serializers.ModelSerializer):
+    analista_nombre = serializers.SerializerMethodField()
+    estudio_reservado_id = serializers.PrimaryKeyRelatedField(
+        source='estudio_reservado', read_only=True
+    )
+    estudio_reservado_numero = serializers.SerializerMethodField()
+    candidato_nombre = serializers.SerializerMethodField()
+    candidato_cedula = serializers.SerializerMethodField()
+    reunion_estado = serializers.SerializerMethodField()
+    fecha_limite_agendamiento = serializers.SerializerMethodField()
+    estado_visual = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DisponibilidadAnalista
+        fields = [
+            'id', 'analista', 'analista_nombre',
+            'fecha', 'hora_inicio', 'hora_fin',
+            'estado', 'estado_visual',
+            'estudio_reservado_id', 'estudio_reservado_numero',
+            'candidato_nombre', 'candidato_cedula',
+            'reunion_estado', 'fecha_limite_agendamiento',
+            'creado_at',
+        ]
+        read_only_fields = ['id', 'analista', 'hora_fin', 'estado', 'estudio_reservado_id', 'creado_at']
+
+    def _get_reunion(self, obj):
+        reuniones = getattr(obj, "_prefetched_objects_cache", {}).get("reuniones_agendadas")
+        if reuniones is not None:
+            return reuniones[0] if reuniones else None
+        return obj.reuniones_agendadas.order_by("-agendado_at").first()
+
+    def get_analista_nombre(self, obj):
+        u = obj.analista
+        return (f"{u.first_name} {u.last_name}".strip()) or u.username
+
+    def get_estudio_reservado_numero(self, obj):
+        return obj.estudio_reservado_id
+
+    def get_candidato_nombre(self, obj):
+        estudio = getattr(obj, "estudio_reservado", None)
+        candidato = getattr(getattr(estudio, "solicitud", None), "candidato", None)
+        if not candidato:
+            return ""
+        return f"{candidato.nombre} {candidato.apellido}".strip()
+
+    def get_candidato_cedula(self, obj):
+        estudio = getattr(obj, "estudio_reservado", None)
+        candidato = getattr(getattr(estudio, "solicitud", None), "candidato", None)
+        return getattr(candidato, "cedula", "") or ""
+
+    def get_reunion_estado(self, obj):
+        reunion = self._get_reunion(obj)
+        return getattr(reunion, "estado", "") or ""
+
+    def get_fecha_limite_agendamiento(self, obj):
+        reunion = self._get_reunion(obj)
+        if reunion and reunion.fecha_limite_agendamiento:
+            return reunion.fecha_limite_agendamiento.isoformat()
+        return None
+
+    def get_estado_visual(self, obj):
+        reunion = self._get_reunion(obj)
+        if obj.estado == "DISPONIBLE" and obj.fecha < timezone.localdate():
+            return "VENCIDO"
+        if reunion and obj.estado == "RESERVADO" and reunion.estado == ReunionVirtualAgendada.Estado.REALIZADA:
+            return "REALIZADO"
+        return obj.estado
+
+
+class ReunionVirtualAgendadaSerializer(serializers.ModelSerializer):
+    slot = DisponibilidadAnalistaSerializer(read_only=True)
+
+    class Meta:
+        model = ReunionVirtualAgendada
+        fields = [
+            'id', 'estudio', 'slot', 'estado',
+            'fecha_limite_agendamiento', 'agendado_at',
+            'cancelado_at', 'nota',
+        ]
+        read_only_fields = [
+            'id', 'estudio', 'slot', 'estado',
+            'fecha_limite_agendamiento', 'agendado_at', 'cancelado_at',
+        ]
 

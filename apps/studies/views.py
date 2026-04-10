@@ -1,4 +1,4 @@
-# ...existing imports...
+﻿# ...existing imports...
 
 
 # apps/studies/views.py
@@ -15,7 +15,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.mail import send_mail
 from django.db import transaction
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Prefetch
 from django.http import FileResponse
 from django.utils import timezone
 from django.utils.crypto import get_random_string
@@ -69,6 +69,10 @@ from .models import (
     HistorialConfiguracion,
     DisponibilidadReunionCandidato,
     SlotDisponibilidadAnalista,
+    DisponibilidadAnalista,
+    DisponibilidadAnalistaEstado,
+    ReunionVirtualAgendada,
+    calcular_fecha_limite,
 )
 from .serializers import (
     SolicitudCreateSerializer,
@@ -90,6 +94,8 @@ from .serializers import (
     HistorialConfiguracionSerializer,
     DisponibilidadReunionSerializer,
     SlotDisponibilidadAnalistaSerializer,
+    DisponibilidadAnalistaSerializer,
+    ReunionVirtualAgendadaSerializer,
 )
 
 # ======================================================================================
@@ -152,6 +158,185 @@ def _collect_refs_from_request(data):
         if m:
             mapped.append(m)
     return mapped[:6]
+
+
+def _nombre_persona(obj, fallback=""):
+    if not obj:
+        return fallback
+    nombre = getattr(obj, "nombre", None)
+    apellido = getattr(obj, "apellido", None)
+    if nombre or apellido:
+        full = f"{nombre or ''} {apellido or ''}".strip()
+        if full:
+            return full
+    first = getattr(obj, "first_name", None)
+    last = getattr(obj, "last_name", None)
+    if first or last:
+        full = f"{first or ''} {last or ''}".strip()
+        if full:
+            return full
+    return getattr(obj, "username", None) or getattr(obj, "email", None) or fallback
+
+
+def _frontend_link_por_rol(rol):
+    frontend = getattr(settings, "FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    return {
+        "CANDIDATO": f"{frontend}/candidato",
+        "ANALISTA": f"{frontend}/analista",
+        "CLIENTE": f"{frontend}/cliente",
+    }.get(rol, frontend)
+
+
+def _primer_slot_disponible_para_estudio(estudio):
+    fecha_limite = estudio.fecha_limite_agendamiento()
+    analista = getattr(getattr(estudio, "solicitud", None), "analista", None)
+    hoy = timezone.localdate()
+    if not analista or not fecha_limite or hoy > fecha_limite:
+        return None
+    return (
+        DisponibilidadAnalista.objects.filter(
+            analista=analista,
+            estado=DisponibilidadAnalistaEstado.DISPONIBLE,
+            fecha__gte=hoy,
+            fecha__lte=fecha_limite,
+        )
+        .order_by("fecha", "hora_inicio")
+        .first()
+    )
+
+
+def _destinatarios_reunion_virtual(estudio):
+    solicitud = getattr(estudio, "solicitud", None)
+    candidato = getattr(solicitud, "candidato", None)
+    analista = getattr(solicitud, "analista", None)
+    empresa = getattr(solicitud, "empresa", None)
+    destinatarios = []
+
+    if getattr(candidato, "email", None):
+        nombre = _nombre_persona(candidato, "candidato")
+        destinatarios.append({
+            "email": candidato.email,
+            "rol": "CANDIDATO",
+            "nombre": nombre,
+            "saludo": f"Hola {nombre}",
+        })
+    if getattr(analista, "email", None):
+        nombre = _nombre_persona(analista, "analista")
+        destinatarios.append({
+            "email": analista.email,
+            "rol": "ANALISTA",
+            "nombre": nombre,
+            "saludo": f"Hola {nombre}",
+        })
+    if getattr(empresa, "email_contacto", None):
+        destinatarios.append({
+            "email": empresa.email_contacto,
+            "rol": "CLIENTE",
+            "nombre": getattr(empresa, "nombre", None) or "cliente",
+            "saludo": "Hola cliente",
+        })
+    return destinatarios
+
+
+def _contexto_evento_reunion(evento, estudio, slot=None, reunion=None, actor=None, meeting_url=""):
+    actor_nombre = _nombre_persona(actor, "El sistema")
+    candidato = getattr(getattr(estudio, "solicitud", None), "candidato", None)
+    analista = getattr(getattr(estudio, "solicitud", None), "analista", None)
+    empresa = getattr(getattr(estudio, "solicitud", None), "empresa", None)
+
+    eventos = {
+        "DISPONIBILIDAD": {
+            "asunto": f"Ya hay disponibilidad para la reuniÃ³n virtual del estudio #{estudio.id}",
+            "etiqueta": "Disponibilidad de reuniÃ³n virtual",
+            "titulo": f"Ya hay fechas disponibles para el estudio #{estudio.id}",
+            "mensaje": "La agenda de la reuniÃ³n virtual ya tiene al menos un horario disponible dentro del plazo permitido para agendar.",
+            "detalle_evento": f"{actor_nombre} registrÃ³ disponibilidad para este estudio.",
+            "estado": "DISPONIBLE",
+            "color_texto": "#1d4ed8",
+            "color_fondo": "#dbeafe",
+            "color_borde": "#93c5fd",
+            "accion_label": "Ir a la plataforma",
+        },
+        "APARTADA": {
+            "asunto": f"La reuniÃ³n virtual del estudio #{estudio.id} fue agendada",
+            "etiqueta": "ReuniÃ³n virtual agendada",
+            "titulo": f"La reuniÃ³n virtual del estudio #{estudio.id} ya fue apartada",
+            "mensaje": "Se reservÃ³ un horario para la reuniÃ³n virtual de este estudio y el espacio quedÃ³ bloqueado para otros candidatos.",
+            "detalle_evento": f"{actor_nombre} apartÃ³ el horario de la reuniÃ³n virtual.",
+            "estado": "RESERVADA",
+            "color_texto": "#92400e",
+            "color_fondo": "#fef3c7",
+            "color_borde": "#fcd34d",
+            "accion_label": "Ver estudio",
+        },
+        "CREADA": {
+            "asunto": f"La reuniÃ³n virtual del estudio #{estudio.id} ya fue creada",
+            "etiqueta": "ReuniÃ³n virtual confirmada",
+            "titulo": f"La reuniÃ³n virtual del estudio #{estudio.id} ya fue creada",
+            "mensaje": "La reuniÃ³n virtual ya quedÃ³ creada y confirmada para este estudio.",
+            "detalle_evento": f"{actor_nombre} confirmÃ³ la reuniÃ³n virtual y dejÃ³ el enlace disponible.",
+            "estado": "CONFIRMADA",
+            "color_texto": "#166534",
+            "color_fondo": "#dcfce7",
+            "color_borde": "#86efac",
+            "accion_label": "Abrir reuniÃ³n" if meeting_url else "Ver estudio",
+        },
+        "CANCELADA": {
+            "asunto": f"La reuniÃ³n virtual del estudio #{estudio.id} fue cancelada",
+            "etiqueta": "ReuniÃ³n virtual cancelada",
+            "titulo": f"La reuniÃ³n virtual del estudio #{estudio.id} fue cancelada",
+            "mensaje": "La reuniÃ³n virtual de este estudio fue cancelada y el horario quedÃ³ liberado nuevamente.",
+            "detalle_evento": f"{actor_nombre} cancelÃ³ la reuniÃ³n virtual.",
+            "estado": "CANCELADA",
+            "color_texto": "#b91c1c",
+            "color_fondo": "#fee2e2",
+            "color_borde": "#fca5a5",
+            "accion_label": "Ir a la plataforma",
+        },
+    }
+    base = eventos[evento]
+    return {
+        **base,
+        "estudio_id": estudio.id,
+        "solicitud_id": getattr(getattr(estudio, "solicitud", None), "id", None),
+        "candidato_nombre": _nombre_persona(candidato, "Sin candidato"),
+        "analista_nombre": _nombre_persona(analista, "Sin analista"),
+        "empresa_nombre": getattr(empresa, "nombre", None) or "Sin empresa",
+        "fecha_reunion": getattr(slot, "fecha", None),
+        "hora_inicio": getattr(slot, "hora_inicio", None),
+        "hora_fin": getattr(slot, "hora_fin", None),
+        "fecha_limite": getattr(reunion, "fecha_limite_agendamiento", None) or estudio.fecha_limite_agendamiento(),
+        "meeting_url": meeting_url or "",
+        "nota": getattr(reunion, "nota", "") if reunion else "",
+    }
+
+
+def _enviar_correos_reunion_virtual(estudio, evento, slot=None, reunion=None, actor=None, meeting_url=""):
+    contexto_base = _contexto_evento_reunion(
+        evento=evento,
+        estudio=estudio,
+        slot=slot,
+        reunion=reunion,
+        actor=actor,
+        meeting_url=meeting_url,
+    )
+    for destinatario in _destinatarios_reunion_virtual(estudio):
+        contexto = {
+            **contexto_base,
+            "destinatario_nombre": destinatario["nombre"],
+            "saludo": destinatario["saludo"],
+            "accion_url": meeting_url if (evento == "CREADA" and meeting_url) else _frontend_link_por_rol(destinatario["rol"]),
+        }
+        mensaje_html = render_to_string("emails/reunion_virtual_actualizada.html", contexto)
+        mensaje_txt = render_to_string("emails/reunion_virtual_actualizada.txt", contexto)
+        send_mail(
+            subject=contexto["asunto"],
+            message=mensaje_txt,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[destinatario["email"]],
+            html_message=mensaje_html,
+            fail_silently=True,
+        )
 
 
 # Resample compatible Pillow
@@ -426,14 +611,13 @@ def _migrate_relevant_data_from_previous_study(prev_est: Estudio, new_est: Estud
         candidato_destino=cand,
     )
 
-
 # ======================================================================================
 # Helper: llenado real del candidato por mÃ³dulo
 # ======================================================================================
 
 def _candidato_fill(est: Estudio):
     """
-    Devuelve (fill_dict, progreso_pct) donde fill_dict mapea tipo de item â†’
+    Devuelve (fill_dict, progreso_pct) donde fill_dict mapea tipo de item Ã¢â€ â€™
       True  = candidato ya ingresÃ³ datos en este mÃ³dulo,
       False = mÃ³dulo vacÃ­o,
       None  = mÃ³dulo que llena el analista (N/A para candidato).
@@ -442,7 +626,7 @@ def _candidato_fill(est: Estudio):
 
     fill = {}
 
-    # BIOGRAFICOS â€“ campos clave del candidato
+    # BIOGRAFICOS â€” campos clave del candidato
     bio_fields = ["fecha_nacimiento", "telefono", "celular", "direccion", "sexo", "estatura_cm"]
     fill["BIOGRAFICOS"] = any(getattr(cand, f, None) for f in bio_fields)
 
@@ -490,7 +674,7 @@ def _candidato_fill(est: Estudio):
     # ANEXOS_FOTOGRAFICOS
     fill["ANEXOS_FOTOGRAFICOS"] = est.anexos_foto.exists()
 
-    # LISTAS_RESTRICTIVAS â€“ lo llena el analista, no el candidato
+    # LISTAS_RESTRICTIVAS â€” lo llena el analista, no el candidato
     fill["LISTAS_RESTRICTIVAS"] = None
 
     # Progreso candidato: solo mÃ³dulos con valor bool (excluye None)
@@ -554,7 +738,7 @@ class SolicitudViewSet(viewsets.ModelViewSet):
             empresa=emp, bloqueado=True, no_relevante=True
         ).exists()
         subitems_excluidos = ClienteConfiguracionFormulario.objects.filter(empresa=emp, excluido=True).exists()
-        usar_politicas_cliente = politicas_bloqueadas_activas  # se activa automáticamente si polÃ­ticas estÃ¡n bloqueadas
+        usar_politicas_cliente = politicas_bloqueadas_activas  # se activa automÃ¡ticamente si polÃ­ticas estÃ¡n bloqueadas
 
         solicitud = serializer.save(empresa=emp)
         solicitud.estado = getattr(getattr(Solicitud, "Estado", None), "PENDIENTE_INVITACION", "PENDIENTE_INVITACION")
@@ -598,7 +782,7 @@ class SolicitudViewSet(viewsets.ModelViewSet):
                 tipo="NUEVA_SOLICITUD",
                 titulo=f"Nueva solicitud #{solicitud.id}",
                 cuerpo=(
-                    f"Empresa: {solicitud.empresa} â€“ "
+                    f"Empresa: {solicitud.empresa} â€” "
                     f"Candidato: {solicitud.candidato.nombre} {solicitud.candidato.apellido} "
                     f"({solicitud.candidato.cedula})"
                 ),
@@ -724,6 +908,20 @@ class SolicitudViewSet(viewsets.ModelViewSet):
             solicitud.save(update_fields=["estado"])
         except Exception:
             pass
+
+        estudio = getattr(solicitud, "estudio", None)
+        if estudio:
+            estudio.marcar_habilitado_para_candidato()
+            slot_disponible = _primer_slot_disponible_para_estudio(estudio)
+            if slot_disponible:
+                transaction.on_commit(
+                    lambda estudio_id=estudio.id, slot_id=slot_disponible.id, actor_id=request.user.id: _enviar_correos_reunion_virtual(
+                        estudio=Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa").get(pk=estudio_id),
+                        evento="DISPONIBILIDAD",
+                        slot=DisponibilidadAnalista.objects.get(pk=slot_id),
+                        actor=get_user_model().objects.get(pk=actor_id),
+                    )
+                )
 
         return Response({"ok": True})
 
@@ -852,6 +1050,22 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         vv.ultima_actualizacion_at = None
         vv.save()
 
+        reunion = getattr(est, "reunion_agendada", None)
+        if reunion and reunion.estado == ReunionVirtualAgendada.Estado.PENDIENTE:
+            reunion.estado = ReunionVirtualAgendada.Estado.CONFIRMADA
+            reunion.save(update_fields=["estado"])
+
+        transaction.on_commit(
+            lambda estudio_id=est.id, actor_id=request.user.id: _enviar_correos_reunion_virtual(
+                estudio=Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa").get(pk=estudio_id),
+                evento="CREADA",
+                slot=getattr(ReunionVirtualAgendada.objects.select_related("slot").filter(estudio_id=estudio_id).first(), "slot", None),
+                reunion=ReunionVirtualAgendada.objects.select_related("slot").filter(estudio_id=estudio_id).first(),
+                actor=get_user_model().objects.get(pk=actor_id),
+                meeting_url=vv.meeting_url,
+            )
+        )
+
         return Response(self._serialize_visita(vv, include_location=True), status=201 if created else 200)
 
     @action(detail=True, methods=["post"], url_path="visita-virtual/finalizar")
@@ -871,6 +1085,15 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         vv.estado = VisitaVirtualEstado.FINALIZADA
         vv.finalizada_at = timezone.now()
         vv.save(update_fields=["estado", "finalizada_at", "updated_at"])
+
+        reunion = getattr(est, "reunion_agendada", None)
+        if reunion and reunion.estado in (
+            ReunionVirtualAgendada.Estado.PENDIENTE,
+            ReunionVirtualAgendada.Estado.CONFIRMADA,
+        ):
+            reunion.estado = ReunionVirtualAgendada.Estado.REALIZADA
+            reunion.save(update_fields=["estado"])
+
         return Response(self._serialize_visita(vv, include_location=True))
 
     @action(detail=True, methods=["post"], url_path="visita-virtual/consentir")
@@ -937,10 +1160,10 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             qs = EstudioReferencia.objects.filter(estudio=est).order_by("-id")
             if qs.exists():
                 ser = EstudioReferenciaSerializer(qs, many=True, context={"request": request})
-                # âœ… el front soporta lista o {laborales,personales}; devolver lista aquÃ­ ok
+                # Ã¢Å“â€¦ el front soporta lista o {laborales,personales}; devolver lista aquÃ­ ok
                 return Response(ser.data)
 
-            # ðŸ” Fallback: derivar de registros Laboral si no hay referencias guardadas
+            # Ã°Å¸â€Â Fallback: derivar de registros Laboral si no hay referencias guardadas
             labs = (Laboral.objects
                     .filter(estudio=est)
                     .order_by("-creado"))
@@ -963,7 +1186,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             # Si no tienes de dÃ³nde sacar personales, dÃ©jalo vacÃ­o.
             personales = []
 
-            # âœ… El front tambiÃ©n soporta este formato
+            # Ã¢Å“â€¦ El front tambiÃ©n soporta este formato
             return Response({"laborales": laborales, "personales": personales})
 
         # POST (append)
@@ -1242,7 +1465,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         ser = self.get_serializer(est)
         data = ser.data
 
-        # â¬‡ï¸ Si es CANDIDATO y el estudio estÃ¡ cerrado y NO ha enviado la evaluaciÃ³n
+        # Ã¢Â¬â€¡Ã¯Â¸Â Si es CANDIDATO y el estudio estÃ¡ cerrado y NO ha enviado la evaluaciÃ³n
         if str(getattr(request.user, "rol", "")).upper() == "CANDIDATO":
             ev = getattr(est, "evaluacion", None)
             pendiente = ((est.estado or "").upper() == "CERRADO" and not (ev and ev.submitted_at))
@@ -1273,7 +1496,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             est.observacion_analista = obs
         est.save(update_fields=["decision_final", "estado", "finalizado_at", "observacion_analista"])
 
-        # â¬‡ï¸ Asegura que exista registro de evaluaciÃ³n para el candidato
+        # Ã¢Â¬â€¡Ã¯Â¸Â Asegura que exista registro de evaluaciÃ³n para el candidato
         EvaluacionTrato.objects.get_or_create(
             estudio=est,
             defaults={"candidato_user": self._candidate_user_for(est)}
@@ -1367,7 +1590,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         validados = items.filter(estado="VALIDADO").count()
         hallazgos = items.filter(estado="HALLAZGO").count()
 
-        # â”€â”€ Calcular llenado real del candidato por mÃ³dulo â”€â”€
+        # Ã¢â€â‚¬Ã¢â€â‚¬ Calcular llenado real del candidato por mÃ³dulo Ã¢â€â‚¬Ã¢â€â‚¬
         fill, progreso_candidato = _candidato_fill(est)
 
         secciones = {}
@@ -1654,18 +1877,18 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         CONSENT_TEXTS = {
             "GENERAL": (
                 "El candidato autoriza a la empresa y a sus aliados a recolectar, almacenar, usar y compartir "
-                "sus datos personales con fines de validación de identidad, verificación de antecedentes y "
-                "evaluación de aptitud para el cargo, conforme a la Ley 1581 de 2012 y el Decreto 1377 de 2013."
+                "sus datos personales con fines de validaciÃ³n de identidad, verificaciÃ³n de antecedentes y "
+                "evaluaciÃ³n de aptitud para el cargo, conforme a la Ley 1581 de 2012 y el Decreto 1377 de 2013."
             ),
             "CENTRALES": (
                 "El candidato autoriza expresamente la consulta de su historial en centrales de riesgo "
-                "(DataCrédito, TransUnión, CIFIN y similares) con el fin de evaluar su perfil financiero "
-                "como parte del proceso de selección, según lo dispuesto en la Ley 1266 de 2008."
+                "(DataCrÃ©dito, TransUniÃ³n, CIFIN y similares) con el fin de evaluar su perfil financiero "
+                "como parte del proceso de selecciÃ³n, segÃºn lo dispuesto en la Ley 1266 de 2008."
             ),
             "ACADEMICO": (
-                "El candidato autoriza la verificación de sus títulos, certificados y demás credenciales "
-                "académicas ante las instituciones educativas correspondientes, incluyendo el contacto "
-                "directo con dichas entidades para confirmar la autenticidad de la información suministrada."
+                "El candidato autoriza la verificaciÃ³n de sus tÃ­tulos, certificados y demÃ¡s credenciales "
+                "acadÃ©micas ante las instituciones educativas correspondientes, incluyendo el contacto "
+                "directo con dichas entidades para confirmar la autenticidad de la informaciÃ³n suministrada."
             ),
         }
 
@@ -1710,7 +1933,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.setFillColor(C_NAVY2)
             c.rect(0, h - 130, w, 30, stroke=0, fill=1)
 
-            # Línea de acento bajo el header
+            # LÃ­nea de acento bajo el header
             c.setFillColor(C_ACCENT)
             c.rect(0, h - 132, w, 3, stroke=0, fill=1)
 
@@ -1737,13 +1960,13 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             # SubtÃ­tulo
             c.setFont("Helvetica", 9)
             c.setFillColor(colors.HexColor("#93c5fd"))
-            c.drawString(text_x, h - 62, f"Estudio #{est.id}  ·  Generado el {fecha_generado}")
-            c.drawString(text_x, h - 76, f"{nombre_empresa}  ·  NIT: {nit_empresa}")
+            c.drawString(text_x, h - 62, f"Estudio #{est.id}  Â·  Generado el {fecha_generado}")
+            c.drawString(text_x, h - 76, f"{nombre_empresa}  Â·  NIT: {nit_empresa}")
 
             # NÃºmero de pÃ¡gina (esquina superior derecha)
             c.setFont("Helvetica", 8)
             c.setFillColor(colors.HexColor("#93c5fd"))
-            c.drawRightString(w - 22, h - 62, f"Página {page[0]}")
+            c.drawRightString(w - 22, h - 62, f"PÃ¡gina {page[0]}")
 
             # Tarjeta de datos del candidato
             c.setFillColor(colors.HexColor("#0d1f3c"))
@@ -1763,7 +1986,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.drawString(56, h - 152, nombre_candidato)
             c.setFont("Helvetica", 8.5)
             c.setFillColor(colors.HexColor("#94a3b8"))
-            c.drawString(56, h - 167, f"C.C. {cedula}  ·  {email_candidato}")
+            c.drawString(56, h - 167, f"C.C. {cedula}  Â·  {email_candidato}")
 
             # Total de formatos
             total = len(consentimientos)
@@ -1820,8 +2043,8 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.rect(0, 40, w, 2, stroke=0, fill=1)
             c.setFont("Helvetica", 7.5)
             c.setFillColor(colors.HexColor("#94a3b8"))
-            c.drawString(22, 25, "Documento generado automáticamente por la plataforma eConfia · Evidencia digital de consentimientos informados")
-            c.drawRightString(w - 22, 25, f"Estudio #{est.id}  ·  Página {page[0]}")
+            c.drawString(22, 25, "Documento generado automÃ¡ticamente por la plataforma eConfia Â· Evidencia digital de consentimientos informados")
+            c.drawRightString(w - 22, 25, f"Estudio #{est.id}  Â·  PÃ¡gina {page[0]}")
             c.drawCentredString(w / 2, 12, now_local.strftime("Emitido el %d/%m/%Y a las %H:%M hrs"))
 
         # Anchos de columna fijos para metadatos
@@ -1833,7 +2056,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         y = h - 270
 
         for idx, cons in enumerate(consentimientos):
-            # â”€â”€ Pre-calcular contenido variable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Pre-calcular contenido variable Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             ua_lines    = _wrap_pdf_text(cons.user_agent or "N/A", max_len=76)[:2]
             text_lines  = _wrap_pdf_text(CONSENT_TEXTS.get(cons.tipo, ""), max_len=80)
             has_ua2     = len(ua_lines) > 1
@@ -1871,7 +2094,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             card_top = y
             card_bot = y - card_h
 
-            # â”€â”€ Fondo y marco de tarjeta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Fondo y marco de tarjeta Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             c.setFillColor(colors.HexColor("#d1d5db"))   # sombra
             c.roundRect(21, card_bot - 3, w - 40, card_h, 8, stroke=0, fill=1)
             c.setFillColor(C_CARD_BG)
@@ -1882,7 +2105,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.setFillColor(C_CARD_ACCENT)               # barra lateral
             c.roundRect(18, card_bot, 5, card_h, 4, stroke=0, fill=1)
 
-            # â”€â”€ Badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Badges Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             cy = card_top - 8   # cursor y (texto en baseline)
             tipo_txt = tipo_label.get(cons.tipo, cons.tipo).upper()
             badge_w = len(tipo_txt) * 5.2 + 16
@@ -1902,14 +2125,14 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.setFillColor(C_MUTED)
             c.drawRightString(w - 28, cy - 5, f"#{idx + 1} de {len(consentimientos)}")
 
-            # â”€â”€ Separador â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Separador Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             cy -= H_HEADER
             c.setStrokeColor(C_CARD_BORDER)
             c.setLineWidth(0.5)
             c.line(28, cy, w - 28, cy)
             cy -= H_SEP1
 
-            # â”€â”€ Metadatos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Metadatos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             firmado_str = (
                 timezone.localtime(cons.firmado_at).strftime("%d/%m/%Y  %H:%M")
                 if cons.firmado_at else "N/A"
@@ -1937,7 +2160,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
             cy -= H_GAP1
 
-            # â”€â”€ Bloque de texto legal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Bloque de texto legal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             if text_lines:
                 block_h = H_TEXT
                 block_y = cy - block_h
@@ -1957,7 +2180,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 
             cy -= H_GAP2
 
-            # â”€â”€ Encabezado secciÃ³n firmas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Encabezado secciÃ³n firmas Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             c.setFont("Helvetica-Bold", 8)
             c.setFillColor(C_MUTED)
             c.drawString(32, cy, "EVIDENCIA DE FIRMAS")
@@ -1967,7 +2190,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
             c.line(32, cy, w - 28, cy)
             cy -= (H_SIG_HDR - 6)
 
-            # â”€â”€ Cajas de firma â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # Ã¢â€â‚¬Ã¢â€â‚¬ Cajas de firma Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
             sig_box_w = (w - 80) / 2
             sig_box_y = cy - H_SIG_BOX   # bottom-left de las cajas
 
@@ -2228,6 +2451,204 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
         ]
         return Response(data)
 
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Nuevo sistema de agendamiento tipo cita mÃ©dica
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    @action(detail=True, methods=["get"], url_path="reunion-agendada/slots-disponibles")
+    def reunion_slots_disponibles(self, request, pk=None):
+        """
+        GET â€” candidato/analista/admin ve los slots disponibles del analista
+        asignado al estudio, dentro del plazo de 3 dÃ­as hÃ¡biles desde enviado_at.
+        """
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if rol == "CANDIDATO" and est.solicitud.candidato.email != request.user.email:
+            return Response({"detail": "Sin permiso."}, status=403)
+        if rol not in {"CANDIDATO", "ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        fecha_inicio = est.fecha_inicio_agendamiento()
+        if not fecha_inicio:
+            return Response({"slots": [], "fecha_limite": None,
+                             "mensaje": "El estudio aÃºn no ha sido habilitado al candidato."})
+
+        fecha_limite = calcular_fecha_limite(fecha_inicio)
+        hoy = timezone.now().date()
+
+        if hoy > fecha_limite:
+            return Response({
+                "slots": [],
+                "fecha_limite": fecha_limite.isoformat(),
+                "vencido": True,
+                "mensaje": "El plazo para agendar la reuniÃ³n virtual ha vencido.",
+            })
+
+        analista = est.solicitud.analista
+        if not analista:
+            return Response({"slots": [], "fecha_limite": fecha_limite.isoformat(),
+                             "mensaje": "El estudio no tiene analista asignado."})
+
+        slots = DisponibilidadAnalista.objects.filter(
+            analista=analista,
+            estado=DisponibilidadAnalistaEstado.DISPONIBLE,
+            fecha__gte=hoy,
+            fecha__lte=fecha_limite,
+        )
+        return Response({
+            "slots": DisponibilidadAnalistaSerializer(slots, many=True).data,
+            "fecha_limite": fecha_limite.isoformat(),
+            "vencido": False,
+        })
+
+    @action(detail=True, methods=["get"], url_path="reunion-agendada")
+    def reunion_agendada_detail(self, request, pk=None):
+        """GET â€” ver la reuniÃ³n agendada del estudio."""
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if rol == "CANDIDATO" and est.solicitud.candidato.email != request.user.email:
+            return Response({"detail": "Sin permiso."}, status=403)
+        if rol not in {"CANDIDATO", "ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        reunion = getattr(est, "reunion_agendada", None)
+        fecha_limite = (
+            calcular_fecha_limite(est.fecha_inicio_agendamiento()).isoformat()
+            if est.fecha_inicio_agendamiento() else None
+        )
+        if not reunion:
+            return Response({"reunion": None, "fecha_limite": fecha_limite})
+
+        data = ReunionVirtualAgendadaSerializer(reunion).data
+        data["fecha_limite"] = fecha_limite
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="reunion-agendada/agendar")
+    def reunion_agendar(self, request, pk=None):
+        """
+        POST â€” candidato agenda un slot del analista.
+        Body: { slot_id, nota (opcional) }
+        """
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if rol != "CANDIDATO" or est.solicitud.candidato.email != request.user.email:
+            return Response({"detail": "Solo el candidato puede agendar la reuniÃ³n."}, status=403)
+
+        # Verificar si ya tiene reuniÃ³n activa
+        reunion_existente = getattr(est, "reunion_agendada", None)
+        if reunion_existente and reunion_existente.estado in ("PENDIENTE", "CONFIRMADA"):
+            return Response({"detail": "Ya tienes una reuniÃ³n agendada. CancÃ©lala primero."}, status=400)
+
+        fecha_inicio = est.fecha_inicio_agendamiento()
+        if not fecha_inicio:
+            return Response({"detail": "El estudio aÃºn no ha sido habilitado al candidato."}, status=400)
+
+        fecha_limite = calcular_fecha_limite(fecha_inicio)
+        hoy = timezone.now().date()
+
+        if hoy > fecha_limite:
+            return Response({"detail": "El plazo para agendar la reuniÃ³n ha vencido."}, status=400)
+
+        slot_id = request.data.get("slot_id")
+        nota = (request.data.get("nota") or "").strip()
+        if not slot_id:
+            return Response({"detail": "Debes indicar slot_id."}, status=400)
+
+        with transaction.atomic():
+            try:
+                slot = DisponibilidadAnalista.objects.select_for_update().get(
+                    pk=slot_id,
+                    analista=est.solicitud.analista,
+                    estado=DisponibilidadAnalistaEstado.DISPONIBLE,
+                    fecha__gte=hoy,
+                    fecha__lte=fecha_limite,
+                )
+            except DisponibilidadAnalista.DoesNotExist:
+                return Response({"detail": "Slot no disponible o no encontrado."}, status=404)
+
+            # Marcar slot como reservado
+            slot.estado = DisponibilidadAnalistaEstado.RESERVADO
+            slot.estudio_reservado = est
+            slot.save(update_fields=["estado", "estudio_reservado"])
+
+            if reunion_existente:
+                # Liberar el slot anterior si existÃ­a
+                slot_anterior = reunion_existente.slot
+                if slot_anterior and slot_anterior.pk != slot.pk:
+                    slot_anterior.estado = DisponibilidadAnalistaEstado.DISPONIBLE
+                    slot_anterior.estudio_reservado = None
+                    slot_anterior.save(update_fields=["estado", "estudio_reservado"])
+                reunion_existente.slot = slot
+                reunion_existente.estado = ReunionVirtualAgendada.Estado.PENDIENTE
+                reunion_existente.fecha_limite_agendamiento = fecha_limite
+                reunion_existente.nota = nota
+                reunion_existente.cancelado_at = None
+                reunion_existente.cancelado_por = None
+                reunion_existente.save()
+                reunion = reunion_existente
+            else:
+                reunion = ReunionVirtualAgendada.objects.create(
+                    estudio=est,
+                    slot=slot,
+                    estado=ReunionVirtualAgendada.Estado.PENDIENTE,
+                    fecha_limite_agendamiento=fecha_limite,
+                    nota=nota,
+                )
+
+        data = ReunionVirtualAgendadaSerializer(reunion).data
+        data["fecha_limite"] = fecha_limite.isoformat()
+        transaction.on_commit(
+            lambda estudio_id=est.id, reunion_id=reunion.id, actor_id=request.user.id: _enviar_correos_reunion_virtual(
+                estudio=Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa").get(pk=estudio_id),
+                evento="APARTADA",
+                reunion=(rv := ReunionVirtualAgendada.objects.select_related("slot").get(pk=reunion_id)),
+                slot=rv.slot,
+                actor=get_user_model().objects.get(pk=actor_id),
+            )
+        )
+        return Response(data, status=201)
+
+    @action(detail=True, methods=["post"], url_path="reunion-agendada/cancelar")
+    def reunion_cancelar(self, request, pk=None):
+        """POST â€” candidato o analista/admin cancela la reuniÃ³n agendada."""
+        est = self.get_object()
+        rol = str(getattr(request.user, "rol", "")).upper()
+
+        if rol == "CANDIDATO" and est.solicitud.candidato.email != request.user.email:
+            return Response({"detail": "Sin permiso."}, status=403)
+        if rol not in {"CANDIDATO", "ANALISTA", "ADMIN"}:
+            return Response({"detail": "Sin permiso."}, status=403)
+
+        reunion = getattr(est, "reunion_agendada", None)
+        if not reunion or reunion.estado not in ("PENDIENTE", "CONFIRMADA"):
+            return Response({"detail": "No hay reuniÃ³n activa para cancelar."}, status=404)
+
+        with transaction.atomic():
+            slot = reunion.slot
+            slot.estado = DisponibilidadAnalistaEstado.DISPONIBLE
+            slot.estudio_reservado = None
+            slot.save(update_fields=["estado", "estudio_reservado"])
+
+            reunion.estado = ReunionVirtualAgendada.Estado.CANCELADA
+            reunion.cancelado_at = timezone.now()
+            reunion.cancelado_por = request.user
+            reunion.save(update_fields=["estado", "cancelado_at", "cancelado_por"])
+
+        transaction.on_commit(
+            lambda estudio_id=est.id, reunion_id=reunion.id, actor_id=request.user.id: _enviar_correos_reunion_virtual(
+                estudio=Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa").get(pk=estudio_id),
+                evento="CANCELADA",
+                reunion=(rv := ReunionVirtualAgendada.objects.select_related("slot").get(pk=reunion_id)),
+                slot=rv.slot,
+                actor=get_user_model().objects.get(pk=actor_id),
+            )
+        )
+
+        return Response({"detail": "ReuniÃ³n cancelada. El horario queda disponible para otros candidatos."})
+
 
 # ======================================================================================
 # Items
@@ -2235,6 +2656,7 @@ class EstudioViewSet(viewsets.ReadOnlyModelViewSet):
 class EstudioItemViewSet(viewsets.ModelViewSet):
     queryset = EstudioItem.objects.all()
     serializer_class = EstudioItemSerializer
+
 
     def get_queryset(self):
         user = self.request.user
@@ -2937,4 +3359,110 @@ class HistorialConfiguracionViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_superuser:
             return HistorialConfiguracion.objects.all()
         return HistorialConfiguracion.objects.none()
+
+
+# ======================================================================================
+# Disponibilidad global del analista (agenda tipo mÃ©dico)
+# ======================================================================================
+
+class DisponibilidadAnalistaViewSet(viewsets.ModelViewSet):
+    """
+    GestiÃ³n de la agenda global del analista.
+
+    GET    /api/disponibilidad-analista/          â€” mis slots (analista) / todos (admin)
+    POST   /api/disponibilidad-analista/          â€” crear slot  { fecha, hora_inicio }
+    DELETE /api/disponibilidad-analista/{id}/     â€” eliminar slot (solo si DISPONIBLE)
+
+    Filtros GET opcionales:
+      ?analista_id=<id>   â€” filtrar por analista (admin Ãºnicamente)
+      ?fecha=YYYY-MM-DD   â€” filtrar por fecha exacta
+    """
+    serializer_class = DisponibilidadAnalistaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        rol = str(getattr(user, "rol", "")).upper()
+        qs = DisponibilidadAnalista.objects.select_related(
+            "analista",
+            "estudio_reservado",
+            "estudio_reservado__solicitud",
+            "estudio_reservado__solicitud__candidato",
+        ).prefetch_related(
+            Prefetch(
+                "reuniones_agendadas",
+                queryset=ReunionVirtualAgendada.objects.order_by("-agendado_at"),
+            )
+        )
+
+        if rol == "ADMIN":
+            analista_id = self.request.query_params.get("analista_id")
+            if analista_id:
+                qs = qs.filter(analista_id=analista_id)
+        elif rol == "ANALISTA":
+            qs = qs.filter(analista=user)
+        else:
+            return DisponibilidadAnalista.objects.none()
+
+        fecha = self.request.query_params.get("fecha")
+        if fecha:
+            qs = qs.filter(fecha=fecha)
+
+        return qs
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        rol = str(getattr(user, "rol", "")).upper()
+        if rol not in {"ANALISTA", "ADMIN"}:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Solo analistas y administradores pueden crear disponibilidad.")
+        fecha_slot = serializer.validated_data.get("fecha")
+        hoy = timezone.localdate()
+        estudios_a_notificar = []
+        qs_estudios = (
+            Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa")
+            .filter(solicitud__analista=user, habilitado_candidato_at__isnull=False)
+        )
+        for estudio in qs_estudios:
+            reunion = getattr(estudio, "reunion_agendada", None)
+            if reunion and reunion.estado in (
+                ReunionVirtualAgendada.Estado.PENDIENTE,
+                ReunionVirtualAgendada.Estado.CONFIRMADA,
+            ):
+                continue
+            fecha_limite = estudio.fecha_limite_agendamiento()
+            if not fecha_limite or hoy > fecha_limite or not fecha_slot or fecha_slot < hoy or fecha_slot > fecha_limite:
+                continue
+            ya_tenia_disponibilidad = DisponibilidadAnalista.objects.filter(
+                analista=user,
+                estado=DisponibilidadAnalistaEstado.DISPONIBLE,
+                fecha__gte=hoy,
+                fecha__lte=fecha_limite,
+            ).exists()
+            if not ya_tenia_disponibilidad:
+                estudios_a_notificar.append(estudio.id)
+
+        serializer.save(analista=user)
+        slot = serializer.instance
+        if estudios_a_notificar:
+            transaction.on_commit(
+                lambda estudio_ids=tuple(estudios_a_notificar), slot_id=slot.id, actor_id=user.id: [
+                    _enviar_correos_reunion_virtual(
+                        estudio=Estudio.objects.select_related("solicitud", "solicitud__candidato", "solicitud__analista", "solicitud__empresa").get(pk=estudio_id),
+                        evento="DISPONIBILIDAD",
+                        slot=DisponibilidadAnalista.objects.get(pk=slot_id),
+                        actor=get_user_model().objects.get(pk=actor_id),
+                    )
+                    for estudio_id in estudio_ids
+                ]
+            )
+
+    def destroy(self, request, *args, **kwargs):
+        slot = self.get_object()
+        if slot.estado == DisponibilidadAnalistaEstado.RESERVADO:
+            return Response(
+                {"detail": "No se puede eliminar un slot ya reservado. Cancela la reuniÃ³n primero."},
+                status=400,
+            )
+        return super().destroy(request, *args, **kwargs)
 

@@ -194,6 +194,24 @@ export default function AnalistaDashboard() {
   const [slots, setSlots] = useState([]);
   const [slotForm, setSlotForm] = useState({ fecha: "", hora_inicio: "", hora_fin: "" });
   const [slotBusy, setSlotBusy] = useState(false);
+  const [showDisponibilidad, setShowDisponibilidad] = useState(false);
+  const [showReunionVirtual, setShowReunionVirtual] = useState(false);
+  const [agendaEstudio, setAgendaEstudio] = useState({
+    reunion: null,
+    fechaLimite: null,
+    vencido: false,
+    totalSlotsDisponibles: 0,
+    mensaje: "",
+  });
+  const [agendaEstudioBusy, setAgendaEstudioBusy] = useState(false);
+
+  // Agenda global del analista (nuevo sistema tipo cita médica)
+  const [agendaGlobal, setAgendaGlobal] = useState([]);
+  const [agendaForm, setAgendaForm] = useState({ fecha: "", hora_inicio: "" });
+  const [agendaBusy, setAgendaBusy] = useState(false);
+  const [showAgenda, setShowAgenda] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState(null);
 
   // "Ampliar detalle"
   const [wide, setWide] = useState(false);
@@ -203,7 +221,7 @@ export default function AnalistaDashboard() {
   const centralesInputRef = useRef(null);
   const [centralesBusy, setCentralesBusy] = useState(false);
 
-  // ➕ Referencias
+  // âž• Referencias
   const [refs, setRefs] = useState({ laborales: [], personales: [] });
   const [savingRefs, setSavingRefs] = useState(false);
 
@@ -380,12 +398,29 @@ export default function AnalistaDashboard() {
     }
     setSlotBusy(true);
     try {
-      const { data } = await api.post(`/api/estudios/${sel.id}/slots-analista/`, slotForm);
+      const toApiTime = (value) => {
+        if (!value) return undefined;
+        return value.length === 5 ? `${value}:00` : value;
+      };
+      const payload = {
+        fecha: slotForm.fecha,
+        hora_inicio: toApiTime(slotForm.hora_inicio),
+      };
+      const horaFin = toApiTime(slotForm.hora_fin);
+      if (horaFin) payload.hora_fin = horaFin;
+
+      const { data } = await api.post(`/api/estudios/${sel.id}/slots-analista/`, payload);
       setSlots(Array.isArray(data) ? data : []);
       setSlotForm({ fecha: "", hora_inicio: "", hora_fin: "" });
       toast.success("Slot agregado.");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "No se pudo agregar el slot.");
+      const detail =
+        e?.response?.data?.detail ||
+        e?.response?.data?.hora_inicio?.[0] ||
+        e?.response?.data?.hora_fin?.[0] ||
+        e?.response?.data?.fecha?.[0] ||
+        "No se pudo agregar el slot.";
+      toast.error(detail);
     } finally {
       setSlotBusy(false);
     }
@@ -402,6 +437,145 @@ export default function AnalistaDashboard() {
       toast.error(e?.response?.data?.detail || "No se pudo eliminar el slot.");
     } finally {
       setSlotBusy(false);
+    }
+  };
+
+  // â”€â”€ Agenda global del analista (nuevo sistema tipo cita médica) â”€â”€
+
+  const loadAgendaGlobal = async () => {
+    try {
+      const { data } = await api.get("/api/disponibilidad-analista/");
+      setAgendaGlobal(Array.isArray(data) ? data : (data?.results ?? []));
+    } catch {
+      setAgendaGlobal([]);
+    }
+  };
+
+  const loadAgendaEstudio = async (id) => {
+    if (!id) {
+      setAgendaEstudio({
+        reunion: null,
+        fechaLimite: null,
+        vencido: false,
+        totalSlotsDisponibles: 0,
+        mensaje: "",
+      });
+      return;
+    }
+    try {
+      const [{ data: reunionData }, { data: slotsData }] = await Promise.all([
+        api.get(`/api/estudios/${id}/reunion-agendada/`),
+        api.get(`/api/estudios/${id}/reunion-agendada/slots-disponibles/`),
+      ]);
+      const slotsDisponibles = Array.isArray(slotsData?.slots) ? slotsData.slots : [];
+      setAgendaEstudio({
+        reunion: reunionData?.slot ? reunionData : null,
+        fechaLimite: reunionData?.fecha_limite || slotsData?.fecha_limite || null,
+        vencido: Boolean(slotsData?.vencido),
+        totalSlotsDisponibles: slotsDisponibles.length,
+        mensaje: slotsData?.mensaje || "",
+      });
+    } catch {
+      setAgendaEstudio({
+        reunion: null,
+        fechaLimite: null,
+        vencido: false,
+        totalSlotsDisponibles: 0,
+        mensaje: "",
+      });
+    }
+  };
+
+  const agregarAgendaSlot = async () => {
+    if (!agendaForm.fecha || !agendaForm.hora_inicio) {
+      toast.error("Fecha y hora de inicio son obligatorios.");
+      return;
+    }
+    setAgendaBusy(true);
+    try {
+      await api.post("/api/disponibilidad-analista/", {
+        fecha: agendaForm.fecha,
+        hora_inicio: agendaForm.hora_inicio,
+      });
+      setAgendaForm({ fecha: "", hora_inicio: "" });
+      await loadAgendaGlobal();
+      toast.success("Horario agregado a tu agenda.");
+    } catch (e) {
+      toast.error(
+        e?.response?.data?.detail ||
+        e?.response?.data?.non_field_errors?.[0] ||
+        "No se pudo agregar el horario."
+      );
+    } finally {
+      setAgendaBusy(false);
+    }
+  };
+
+  const eliminarAgendaSlot = async (slotId) => {
+    setAgendaBusy(true);
+    try {
+      await api.delete(`/api/disponibilidad-analista/${slotId}/`);
+      await loadAgendaGlobal();
+      toast.success("Horario eliminado.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No se pudo eliminar el horario.");
+    } finally {
+      setAgendaBusy(false);
+    }
+  };
+
+  const cancelarReunionAgendada = async () => {
+    if (!sel?.id) return;
+    setAgendaEstudioBusy(true);
+    try {
+      await api.post(`/api/estudios/${sel.id}/reunion-agendada/cancelar/`);
+      await Promise.all([loadAgendaEstudio(sel.id), loadAgendaGlobal()]);
+      toast.success("Horario liberado para que otro candidato pueda reservarlo.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No se pudo liberar el horario.");
+    } finally {
+      setAgendaEstudioBusy(false);
+    }
+  };
+
+  // â”€â”€ Helpers para el calendario de agenda â”€â”€
+  const HORAS_AGENDA = ['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
+
+  const toFechaStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const getCalendarDays = (monthDate) => {
+    const y = monthDate.getFullYear(), m = monthDate.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
+    const startOffset = (firstDay.getDay() + 6) % 7; // 0=Lun
+    const start = new Date(firstDay);
+    start.setDate(start.getDate() - startOffset);
+    const days = [];
+    const cur = new Date(start);
+    while (cur <= lastDay || days.length % 7 !== 0) {
+      days.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+      if (days.length >= 42) break;
+    }
+    return days;
+  };
+
+  const getSlotForCell = (dayDate, hora) => {
+    const fechaStr = toFechaStr(dayDate);
+    return agendaGlobal.find(s => s.fecha === fechaStr && s.hora_inicio.slice(0, 5) === hora);
+  };
+
+  const agregarSlotCalendario = async (dayDate, hora) => {
+    setAgendaBusy(true);
+    try {
+      await api.post("/api/disponibilidad-analista/", { fecha: toFechaStr(dayDate), hora_inicio: hora + ':00' });
+      await loadAgendaGlobal();
+      toast.success("Horario agregado.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No se pudo agregar el horario.");
+    } finally {
+      setAgendaBusy(false);
     }
   };
 
@@ -444,6 +618,8 @@ export default function AnalistaDashboard() {
 
   const openEstudio = async (id) => {
     try {
+      setShowDisponibilidad(false);
+      setShowReunionVirtual(false);
       const [{ data }, bioRes] = await Promise.allSettled([
         api.get(`/api/estudios/${id}/`),
         api.get(`/api/estudios/${id}/candidato_bio/`),
@@ -476,19 +652,23 @@ export default function AnalistaDashboard() {
       await loadCentrales(id);
       await loadReferencias(id);
       await loadVisitaVirtual(id);
+      await loadAgendaEstudio(id);
       loadResumen(id); // no-await: carga en paralelo sin bloquear
-      // Cargar evaluacion y disponibilidad en paralelo (sin bloquear)
+      // Cargar evaluacion en paralelo (sin bloquear)
       api.get(`/api/estudios/${id}/evaluacion/`).then((r) => setEvaluacion(r.data)).catch(() => setEvaluacion(null));
-      api.get(`/api/estudios/${id}/disponibilidad-reunion/`).then((r) => setDisponibilidadReunion(r.data)).catch(() => setDisponibilidadReunion(null));
-      loadSlots(id);
+      setDisponibilidadReunion(null);
+      setSlots([]);
       setTab("CANDIDATO");
     } catch {
       setSel(null);
+      setShowDisponibilidad(false);
+      setShowReunionVirtual(false);
       setCentrales([]);
       setRefs({ laborales: [], personales: [] });
       setResumen(null);
       setVisitaVirtual(null);
       setEvaluacion(null);
+      setAgendaEstudio({ reunion: null, fechaLimite: null, vencido: false, totalSlotsDisponibles: 0, mensaje: "" });
       setDisponibilidadReunion(null);
       setSlots([]);
     }
@@ -496,6 +676,7 @@ export default function AnalistaDashboard() {
 
   useEffect(() => {
     load();
+    loadAgendaGlobal();
     // eslint-disable-next-line
   }, []);
 
@@ -842,7 +1023,7 @@ export default function AnalistaDashboard() {
                     PDF
                   </button>
                 )}
-              </div>
+                  </div>
               {(combinedSrc || drawnSrc || uploadSrc) ? (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {combinedSrc && (
@@ -1821,7 +2002,7 @@ export default function AnalistaDashboard() {
     const isOwner = !!sel?.es_propietario;
     return (
       <Box
-        title="📝 Referencias"
+        title="📝 Referencias"
         right={
           !isClosed && isOwner && (
             <button
@@ -1943,16 +2124,233 @@ export default function AnalistaDashboard() {
           subtitle="Gestiona y valida los estudios de seguridad."
           right={
             <div className="flex items-center gap-2">
+              {/* Mi Agenda */}
+              <button
+                onClick={() => setShowAgenda((v) => !v)}
+                title="Mi Agenda"
+                className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  showAgenda
+                    ? "border-sky-400/50 bg-sky-500/25 text-sky-200"
+                    : "border-sky-400/25 bg-sky-500/10 text-sky-300/80 hover:bg-sky-500/20 hover:text-sky-200"
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                Mi Agenda
+              </button>
+
+              {/* Ampliar / contraer detalle — solo ícono */}
               <button
                 onClick={() => setWide((w) => !w)}
-                className="rounded-xl border border-white/10 hover:bg-white/10 px-3 py-2 text-sm text-white/80"
+                title={wide ? "Vista doble" : "Ampliar detalle"}
+                className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/90 transition"
               >
-                {wide ? "Vista doble" : "Ampliar detalle"}
+                {wide ? (
+                  /* Contraer: dos columnas → una */
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                  </svg>
+                ) : (
+                  /* Ampliar: expandir */
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                  </svg>
+                )}
               </button>
+
               <NotificacionesBell />
             </div>
           }
         />
+
+        {/* â”€â”€ Panel de agenda global del analista (calendario interactivo) â”€â”€ */}
+        {showAgenda && (() => {
+          const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+          const DIAS_HDR = ['L','M','X','J','V','S','D'];
+          const calDays = getCalendarDays(calendarMonth);
+          const hoy = new Date(); hoy.setHours(0,0,0,0);
+          const cmYear = calendarMonth.getFullYear();
+          const cmMonth = calendarMonth.getMonth();
+          const daysWithSlots = new Set(agendaGlobal.map(s => s.fecha));
+          const selDayStr = calendarSelectedDay ? toFechaStr(calendarSelectedDay) : null;
+          const todayStr = toFechaStr(hoy);
+
+          return (
+            <div className="rounded-3xl border border-sky-400/20 bg-gradient-to-br from-sky-950/60 to-indigo-950/60 p-5 shadow-2xl backdrop-blur-md space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-sky-200 text-base tracking-tight">Mi disponibilidad para reuniones</div>
+                  <div className="text-xs text-white/50 mt-0.5">
+                    Selecciona un día · elige horas · cada slot dura <span className="text-sky-300 font-semibold">1 hora</span> exacta.
+                  </div>
+                </div>
+                <button onClick={() => setShowAgenda(false)} className="w-7 h-7 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-white/10 transition text-sm">✕</button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-[270px_1fr] gap-4">
+
+                {/* â”€â”€ Mini calendario â”€â”€ */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2 flex-shrink-0">
+                  {/* Navegación de mes */}
+                  <div className="flex items-center justify-between px-1 mb-1">
+                    <button
+                      onClick={() => { const d = new Date(calendarMonth); d.setMonth(d.getMonth()-1); setCalendarMonth(d); }}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition text-xs"
+                    >◀</button>
+                    <span className="text-sm font-semibold text-white/80 capitalize">{MESES[cmMonth]} {cmYear}</span>
+                    <button
+                      onClick={() => { const d = new Date(calendarMonth); d.setMonth(d.getMonth()+1); setCalendarMonth(d); }}
+                      className="w-7 h-7 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition text-xs"
+                    >▶</button>
+                  </div>
+
+                  {/* Cabeceras días semana */}
+                  <div className="grid grid-cols-7 text-center mb-0.5">
+                    {DIAS_HDR.map(d => (
+                      <div key={d} className="text-[10px] text-white/30 font-bold py-0.5">{d}</div>
+                    ))}
+                  </div>
+
+                  {/* Grid de días */}
+                  <div className="grid grid-cols-7 gap-0.5">
+                    {calDays.map((day, i) => {
+                      const inMonth = day.getMonth() === cmMonth;
+                      const isPast = day < hoy;
+                      const fechaStr = toFechaStr(day);
+                      const hasSlot = daysWithSlots.has(fechaStr);
+                      const isSelected = selDayStr === fechaStr;
+                      const isToday = fechaStr === todayStr;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => !isPast && inMonth && setCalendarSelectedDay(new Date(day))}
+                          disabled={isPast || !inMonth}
+                          className={`relative flex flex-col items-center justify-center rounded-lg py-1.5 text-xs font-medium transition select-none
+                            ${!inMonth ? 'opacity-0 pointer-events-none' : ''}
+                            ${inMonth && isPast ? 'text-white/20 cursor-default' : ''}
+                            ${inMonth && !isPast ? 'text-white/70 hover:bg-sky-500/20 hover:text-white cursor-pointer' : ''}
+                            ${isSelected ? '!bg-sky-500/50 !text-white ring-1 ring-sky-400/70' : ''}
+                            ${isToday && !isSelected ? 'ring-1 ring-white/25' : ''}
+                          `}
+                        >
+                          <span>{day.getDate()}</span>
+                          {hasSlot && inMonth && !isPast && (
+                            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-400"></span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Leyenda */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 px-1 border-t border-white/8">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block flex-shrink-0"></span>
+                      <span className="text-[10px] text-white/40">Tiene slots</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-md ring-1 ring-white/25 inline-block flex-shrink-0"></span>
+                      <span className="text-[10px] text-white/40">Hoy</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-md bg-sky-500/50 ring-1 ring-sky-400/70 inline-block flex-shrink-0"></span>
+                      <span className="text-[10px] text-white/40">Seleccionado</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* â”€â”€ Panel de horas â”€â”€ */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                  {!calendarSelectedDay ? (
+                    <div className="flex flex-col items-center justify-center h-full py-10 text-white/30 space-y-2">
+                      <div className="text-4xl">📅</div>
+                      <div className="text-sm italic">Selecciona un día del calendario</div>
+                      <div className="text-xs text-white/20">Verás las horas disponibles aquí</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div className="text-sm font-semibold text-white/80 capitalize">
+                          {calendarSelectedDay.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-white/35">
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-white/10 inline-block"></span>Sin slot</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500/30 inline-block border border-emerald-400/40"></span>Disponible</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500/30 inline-block border border-amber-400/40"></span>Reservado</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-slate-500/30 inline-block border border-slate-400/40"></span>Realizado o vencido</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-6 gap-2">
+                        {HORAS_AGENDA.map(hora => {
+                          const slot = getSlotForCell(calendarSelectedDay, hora);
+                          const estadoVisual = slot?.estado_visual || slot?.estado;
+                          const isDisp = estadoVisual === 'DISPONIBLE';
+                          const isRes = estadoVisual === 'RESERVADO';
+                          const isRealizado = estadoVisual === 'REALIZADO';
+                          const isVencido = estadoVisual === 'VENCIDO';
+                          const isCan = estadoVisual === 'CANCELADO';
+                          const puedeEliminar = isDisp || isCan || isVencido;
+                          const detalleSlot = slot?.candidato_nombre
+                            ? `${slot.candidato_nombre}${slot.estudio_reservado_numero ? ` · #${slot.estudio_reservado_numero}` : ""}`
+                            : slot?.estudio_reservado_numero
+                              ? `Estudio #${slot.estudio_reservado_numero}`
+                              : "";
+                          return (
+                            <button
+                              key={hora}
+                              disabled={agendaBusy || isRes || isRealizado}
+                              onClick={() => {
+                                if (!slot) agregarSlotCalendario(calendarSelectedDay, hora);
+                                else if (puedeEliminar) eliminarAgendaSlot(slot.id);
+                              }}
+                              title={
+                                isRes ? `${detalleSlot || "Horario reservado"} — no se puede eliminar` :
+                                isRealizado ? `${detalleSlot || "Horario realizado"} — se conserva como histórico` :
+                                isVencido ? 'Horario vencido. Puedes eliminarlo de tu agenda.' :
+                                slot ? 'Clic para eliminar este horario' :
+                                'Clic para agregar disponibilidad'
+                              }
+                              className={`rounded-xl py-3 px-2 text-center text-xs font-medium transition-all border flex flex-col items-center gap-1 group min-h-[88px]
+                                ${!slot ? 'border-white/10 bg-white/5 text-white/50 hover:bg-sky-500/20 hover:border-sky-400/50 hover:text-sky-200' : ''}
+                                ${isDisp ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300 hover:bg-rose-500/15 hover:border-rose-400/40 hover:text-rose-300' : ''}
+                                ${isRes ? 'border-amber-400/40 bg-amber-500/15 text-amber-300 cursor-not-allowed' : ''}
+                                ${isRealizado ? 'border-slate-400/40 bg-slate-500/20 text-slate-200 cursor-not-allowed' : ''}
+                                ${isVencido ? 'border-slate-400/30 bg-slate-500/10 text-slate-300 hover:bg-rose-500/15 hover:border-rose-400/40 hover:text-rose-200' : ''}
+                                ${isCan ? 'border-white/5 bg-white/3 text-white/25 line-through' : ''}
+                                ${agendaBusy ? 'opacity-50 pointer-events-none' : ''}
+                              `}
+                            >
+                              <span className="font-bold text-sm leading-none">{hora}</span>
+                              <span className={`text-[9px] leading-none transition-all
+                                ${!slot ? 'text-white/30 group-hover:text-sky-300/80' : ''}
+                                ${isDisp ? 'text-emerald-400/70 group-hover:text-rose-400/70' : ''}
+                                ${isRes ? 'text-amber-400/70' : ''}
+                                ${isRealizado ? 'text-slate-200/80' : ''}
+                                ${isVencido ? 'text-slate-300/80 group-hover:text-rose-200/80' : ''}
+                                ${isCan ? 'text-white/20' : ''}
+                              `}>
+                                {!slot ? '+ agregar' : isDisp ? 'Disponible' : isRes ? 'Reservado' : isRealizado ? 'Realizado' : isVencido ? 'Vencido' : 'Cancelado'}
+                              </span>
+                              {slot && detalleSlot && (
+                                <span className="max-w-full truncate text-[9px] text-white/60">
+                                  {detalleSlot}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Filtros */}
         <div className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur-md">
@@ -2158,7 +2556,15 @@ export default function AnalistaDashboard() {
               setTab={setTab}
               resumen={resumen}
               evaluacion={evaluacion}
+              agendaEstudio={agendaEstudio}
+              agendaEstudioBusy={agendaEstudioBusy}
+              cancelarReunionAgendada={cancelarReunionAgendada}
+              abrirAgenda={() => setShowAgenda(true)}
               disponibilidadReunion={disponibilidadReunion}
+              showDisponibilidad={showDisponibilidad}
+              setShowDisponibilidad={setShowDisponibilidad}
+              showReunionVirtual={showReunionVirtual}
+              setShowReunionVirtual={setShowReunionVirtual}
               slots={slots}
               slotForm={slotForm}
               setSlotForm={setSlotForm}
@@ -2194,7 +2600,15 @@ export default function AnalistaDashboard() {
             setTab={setTab}
             resumen={resumen}
             evaluacion={evaluacion}
+            agendaEstudio={agendaEstudio}
+            agendaEstudioBusy={agendaEstudioBusy}
+            cancelarReunionAgendada={cancelarReunionAgendada}
+            abrirAgenda={() => setShowAgenda(true)}
             disponibilidadReunion={disponibilidadReunion}
+            showDisponibilidad={showDisponibilidad}
+            setShowDisponibilidad={setShowDisponibilidad}
+            showReunionVirtual={showReunionVirtual}
+            setShowReunionVirtual={setShowReunionVirtual}
             slots={slots}
             slotForm={slotForm}
             setSlotForm={setSlotForm}
@@ -2344,7 +2758,15 @@ export function Detalle({
   setTab,
   resumen,
   evaluacion,
+  agendaEstudio,
+  agendaEstudioBusy,
+  cancelarReunionAgendada,
+  abrirAgenda,
   disponibilidadReunion,
+  showDisponibilidad,
+  setShowDisponibilidad,
+  showReunionVirtual,
+  setShowReunionVirtual,
   slots = [],
   slotForm,
   setSlotForm,
@@ -2362,6 +2784,15 @@ export function Detalle({
 }) {
   const isOwner = !!sel?.es_propietario;
   const fill = resumen?.fill_candidato || {};
+  const reunionActiva = agendaEstudio?.reunion && ["PENDIENTE", "CONFIRMADA"].includes(agendaEstudio.reunion.estado);
+  const formatearFecha = (valor) => {
+    if (!valor) return "—";
+    return new Date(`${valor}T00:00:00`).toLocaleDateString("es-CO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
   return (
     <div className="space-y-3">
       <h2 className="text-xl font-semibold">Detalle</h2>
@@ -2489,100 +2920,328 @@ export function Detalle({
             )}
           </div>
 
-          {/* Calendario de disponibilidad del analista */}
+          {/* Disponibilidad al candidato — colapsable */}
           {isOwner && (
-            <div className="rounded-2xl border border-violet-400/25 bg-violet-500/10 p-4 text-white space-y-3">
-              <div className="font-semibold text-sm text-violet-200">Proponer disponibilidad al candidato</div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowDisponibilidad((v) => !v)}
+                aria-expanded={showDisponibilidad}
+                className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                  showDisponibilidad
+                    ? "border-violet-400/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 shadow-lg shadow-violet-950/20"
+                    : "border-violet-400/20 bg-violet-500/10 hover:bg-violet-500/15"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-500/15 text-violet-200 text-sm font-semibold flex-shrink-0">
+                      D
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm text-violet-100 tracking-tight">Disponibilidad</div>
+                      <div className="text-xs text-violet-200/70 truncate">
+                        {reunionActiva
+                          ? `Reservada para ${agendaEstudio.reunion.slot?.fecha} a las ${agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)}`
+                          : agendaEstudio?.vencido
+                            ? "Plazo de agendamiento vencido"
+                            : sel?.habilitado_candidato_at
+                              ? `${agendaEstudio?.totalSlotsDisponibles || 0} horario${agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"} disponible${agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"}`
+                              : "Pendiente por habilitar al candidato"}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-violet-200/80 text-lg leading-none">
+                    {showDisponibilidad ? "▾" : "▸"}
+                  </span>
+                </div>
+              </button>
 
-              {/* Formulario agregar slot */}
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-                <div>
-                  <label className="block text-xs text-white/50 mb-1">Fecha</label>
-                  <input
-                    type="date"
-                    value={slotForm?.fecha || ""}
-                    onChange={(e) => setSlotForm((f) => ({ ...f, fecha: e.target.value }))}
-                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-white/50 mb-1">Hora inicio</label>
-                  <input
-                    type="time"
-                    value={slotForm?.hora_inicio || ""}
-                    onChange={(e) => setSlotForm((f) => ({ ...f, hora_inicio: e.target.value }))}
-                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-white/50 mb-1">Hora fin (opcional)</label>
-                  <input
-                    type="time"
-                    value={slotForm?.hora_fin || ""}
-                    onChange={(e) => setSlotForm((f) => ({ ...f, hora_fin: e.target.value }))}
-                    className="w-full rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-sm text-white outline-none focus:border-violet-400/50"
-                  />
-                </div>
-                <button
-                  onClick={agregarSlot}
-                  disabled={slotBusy}
-                  className="rounded-xl bg-violet-600/80 hover:bg-violet-600 text-white px-3 py-2 text-sm font-semibold transition disabled:opacity-60 whitespace-nowrap"
-                >
-                  {slotBusy ? "..." : "+ Agregar"}
-                </button>
-              </div>
+              {showDisponibilidad && (
+                <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/50 to-indigo-950/50 p-4 text-white space-y-4">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div className="text-[11px] uppercase tracking-widest text-white/35">Estudio habilitado</div>
+                      <div className="mt-1 text-sm font-semibold text-white">
+                        {sel?.habilitado_candidato_at ? "Sí" : "No"}
+                      </div>
+                      <div className="mt-1 text-xs text-white/55">
+                        {sel?.habilitado_candidato_at
+                          ? "Desde aquí corre el plazo para agendar."
+                          : "Primero debes invitar al candidato para abrir la agenda."}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div className="text-[11px] uppercase tracking-widest text-white/35">Fecha límite</div>
+                      <div className="mt-1 text-sm font-semibold text-white">
+                        {formatearFecha(agendaEstudio?.fechaLimite || sel?.fecha_limite_agendamiento)}
+                      </div>
+                      <div className="mt-1 text-xs text-white/55">
+                        Ventana máxima de 3 días hábiles para agendar.
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div className="text-[11px] uppercase tracking-widest text-white/35">Agenda disponible</div>
+                      <div className="mt-1 text-sm font-semibold text-white">
+                        {agendaEstudio?.totalSlotsDisponibles || 0} horario{agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"}
+                      </div>
+                      <div className="mt-1 text-xs text-white/55">
+                        Se toma desde tu agenda global y se bloquea al reservarse.
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Lista de slots */}
-              {slots.length > 0 ? (
-                <div className="space-y-1.5">
-                  <div className="text-xs text-white/50 font-medium uppercase tracking-wide">Slots ofrecidos</div>
-                  {slots.map((s) => {
-                    const elegido = disponibilidadReunion?.slot_seleccionado?.id === s.id;
-                    return (
-                      <div
-                        key={s.id}
-                        className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm border transition ${
-                          elegido
-                            ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-200"
-                            : "border-white/10 bg-white/5 text-white/80"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          {elegido && <span className="text-emerald-400 text-xs font-bold">✓ Elegido</span>}
-                          <span>{s.fecha}</span>
-                          <span className="text-white/50">|</span>
-                          <span>{s.hora_inicio}{s.hora_fin ? ` — ${s.hora_fin}` : ""}</span>
-                        </div>
+                  <div className="rounded-xl border border-violet-300/15 bg-violet-500/10 p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="text-sm text-violet-100">
+                      Administra los horarios desde <span className="font-semibold">Mi Agenda</span>. Cada espacio dura exactamente 1 hora y sirve para todos tus estudios activos.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={abrirAgenda}
+                      className="rounded-xl border border-violet-300/20 bg-violet-500/20 px-4 py-2 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/30"
+                    >
+                      Abrir Mi Agenda
+                    </button>
+                  </div>
+
+                  {reunionActiva ? (
+                    <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-emerald-200">Horario tomado por el candidato</div>
+                        <Badge color={agendaEstudio.reunion.estado === "CONFIRMADA" ? "green" : "amber"}>
+                          {agendaEstudio.reunion.estado}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-4 text-sm text-emerald-100/90">
+                        <span>Fecha: {agendaEstudio.reunion.slot?.fecha}</span>
+                        <span>Hora: {agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)} — {agendaEstudio.reunion.slot?.hora_fin?.slice(0, 5)}</span>
+                      </div>
+                      {agendaEstudio.reunion.nota && (
+                        <div className="text-xs text-emerald-100/70">Nota del candidato: {agendaEstudio.reunion.nota}</div>
+                      )}
+                      <div className="flex justify-end">
                         <button
-                          onClick={() => eliminarSlot(s.id)}
-                          disabled={slotBusy}
-                          className="text-xs text-rose-400/70 hover:text-rose-400 transition disabled:opacity-40"
+                          type="button"
+                          onClick={cancelarReunionAgendada}
+                          disabled={agendaEstudioBusy}
+                          className="rounded-xl bg-rose-600/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:opacity-50"
                         >
-                          Eliminar
+                          {agendaEstudioBusy ? "Liberando..." : "Liberar horario"}
                         </button>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-xs text-white/40 italic">Aún no has agregado slots de disponibilidad.</div>
-              )}
-
-              {/* Nota del candidato si seleccionó */}
-              {disponibilidadReunion?.slot_seleccionado && (
-                <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-                  <span className="font-semibold">Candidato eligió:</span>{" "}
-                  {disponibilidadReunion.slot_seleccionado.fecha} a las {disponibilidadReunion.slot_seleccionado.hora_inicio}
-                  {disponibilidadReunion.nota && (
-                    <div className="mt-1 text-emerald-200/70">Nota: {disponibilidadReunion.nota}</div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/75">
+                      {agendaEstudio?.mensaje ||
+                        (agendaEstudio?.vencido
+                          ? "El plazo de agendamiento ya venció para este estudio."
+                          : sel?.habilitado_candidato_at
+                            ? "El candidato todavía no ha reservado un horario para este estudio."
+                            : "Invita al candidato para abrir su ventana de agendamiento.")}
+                    </div>
                   )}
                 </div>
               )}
             </div>
           )}
 
+          {false && isOwner && (() => {
+            const HORAS_SLOT = ['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
+            const horaSeleccionada = slotForm?.hora_inicio || "";
+            const fechaOk = !!(slotForm?.fecha);
+            const slotElegido = disponibilidadReunion?.slot_seleccionado;
+            return (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDisponibilidad((v) => !v)}
+                  aria-expanded={showDisponibilidad}
+                  className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                    showDisponibilidad
+                      ? "border-violet-400/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 shadow-lg shadow-violet-950/20"
+                      : "border-violet-400/20 bg-violet-500/10 hover:bg-violet-500/15"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-500/15 text-violet-200 text-sm font-semibold flex-shrink-0">
+                        D
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm text-violet-100 tracking-tight">Disponibilidad</div>
+                        <div className="text-xs text-violet-200/70 truncate">
+                          {slotElegido
+                            ? `Candidato confirmó ${slotElegido.fecha} a las ${slotElegido.hora_inicio.slice(0,5)}`
+                            : slots.length > 0
+                              ? `${slots.length} horario${slots.length === 1 ? "" : "s"} propuesto${slots.length === 1 ? "" : "s"}`
+                              : "Proponer disponibilidad al candidato"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {slots.length > 0 && (
+                        <span className="rounded-full border border-violet-300/20 bg-violet-500/15 px-2.5 py-1 text-[11px] font-semibold text-violet-100">
+                          {slots.length}
+                        </span>
+                      )}
+                      <span className="text-violet-200/80 text-lg leading-none">
+                        {showDisponibilidad ? "▾" : "▸"}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+
+                {showDisponibilidad && (
+                  <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/50 to-indigo-950/50 p-3 text-white overflow-hidden space-y-3">
+                {/* Picker de fecha */}
+                <div className="rounded-xl border border-white/8 bg-white/5 p-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-bold text-white/35 uppercase tracking-widest mb-1.5">Fecha</label>
+                      <input
+                        type="date"
+                        value={slotForm?.fecha || ""}
+                        onChange={(e) => setSlotForm((f) => ({ ...f, fecha: e.target.value }))}
+                        className="w-full rounded-lg border border-white/10 bg-white/8 px-3 py-2 text-sm text-white outline-none focus:border-violet-400/60 focus:bg-violet-500/10 transition"
+                      />
+                    </div>
+                    {horaSeleccionada && fechaOk && (
+                      <div className="flex-shrink-0 mt-5">
+                        <button
+                          onClick={agregarSlot}
+                          disabled={slotBusy}
+                          className="rounded-xl bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 text-sm font-semibold transition disabled:opacity-50 whitespace-nowrap shadow-lg shadow-violet-900/40"
+                        >
+                          {slotBusy ? "Guardando…" : "+ Agregar"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selector de hora por botones */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/35 uppercase tracking-widest mb-2">
+                      Hora inicio {horaSeleccionada ? <span className="normal-case font-normal text-violet-300/80">— seleccionada: {horaSeleccionada}</span> : <span className="normal-case font-normal text-white/25">— elige una hora</span>}
+                    </label>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                      {HORAS_SLOT.map(h => {
+                        const isActive = horaSeleccionada === h;
+                        const slotExistente = slots.find(s => s.fecha === slotForm?.fecha && s.hora_inicio.slice(0,5) === h);
+                        return (
+                          <button
+                            key={h}
+                            onClick={() => setSlotForm((f) => ({ ...f, hora_inicio: isActive ? "" : h }))}
+                            disabled={!!slotExistente}
+                            title={slotExistente ? "Ya existe un slot en este horario" : `Seleccionar ${h}`}
+                            className={`rounded-lg py-1.5 text-xs font-medium transition border
+                              ${isActive
+                                ? 'bg-violet-500/50 border-violet-400/70 text-violet-100 ring-1 ring-violet-400/50'
+                                : slotExistente
+                                  ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300/70 cursor-not-allowed'
+                                  : 'border-white/8 bg-white/5 text-white/60 hover:bg-violet-500/20 hover:border-violet-400/40 hover:text-white'
+                              }
+                            `}
+                          >
+                            {h}
+                            {slotExistente && <div className="text-[8px] text-emerald-400/60 mt-0.5">✓ agregado</div>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Hora fin — colapsada y discreta */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-white/25 flex-shrink-0">Hora fin (opcional):</label>
+                    <input
+                      type="time"
+                      value={slotForm?.hora_fin || ""}
+                      onChange={(e) => setSlotForm((f) => ({ ...f, hora_fin: e.target.value }))}
+                      className="rounded-md border border-white/8 bg-white/5 px-2 py-0.5 text-xs text-white/50 outline-none focus:border-violet-400/40 focus:text-white transition w-28"
+                    />
+                    <span className="text-[10px] text-white/20 italic">si no se indica, se usa 1 hora automáticamente</span>
+                  </div>
+                </div>
+
+                {/* Lista de slots ofrecidos */}
+                {slots.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] font-bold text-white/35 uppercase tracking-widest px-0.5">Horarios ofrecidos al candidato</div>
+                    {slots.map((s) => {
+                      const elegido = disponibilidadReunion?.slot_seleccionado?.id === s.id;
+                      return (
+                        <div
+                          key={s.id}
+                          className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition ${
+                            elegido
+                              ? "border-emerald-400/40 bg-emerald-500/12 text-emerald-100"
+                              : "border-white/8 bg-white/4 text-white/75"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {elegido
+                              ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/30">✓ Elegido</span>
+                              : <span className="w-1.5 h-1.5 rounded-full bg-violet-400/50 flex-shrink-0"></span>
+                            }
+                            <span className="font-medium">{new Date(s.fecha + "T00:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" })}</span>
+                            <span className="text-white/30">·</span>
+                            <span className="text-white/80">{s.hora_inicio.slice(0,5)}{s.hora_fin ? ` — ${s.hora_fin.slice(0,5)}` : ""}</span>
+                          </div>
+                          <button
+                            onClick={() => eliminarSlot(s.id)}
+                            disabled={slotBusy}
+                            className="text-[11px] text-rose-400/50 hover:text-rose-400 transition disabled:opacity-30 px-2 py-0.5 rounded-md hover:bg-rose-500/10"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-white/30 italic text-center py-1">
+                    Elige una fecha y una hora para agregar disponibilidad al candidato.
+                  </div>
+                )}
+
+                {/* Confirmación del candidato */}
+                {disponibilidadReunion?.slot_seleccionado && (
+                  <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 space-y-1">
+                    <div className="text-xs font-semibold text-emerald-300">Candidato confirmó asistencia</div>
+                    <div className="text-xs text-emerald-200/80">
+                      {disponibilidadReunion.slot_seleccionado.fecha} a las {disponibilidadReunion.slot_seleccionado.hora_inicio.slice(0,5)}
+                    </div>
+                    {disponibilidadReunion.nota && (
+                      <div className="text-xs text-emerald-200/60 italic">Nota: {disponibilidadReunion.nota}</div>
+                    )}
+                  </div>
+                )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {isOwner && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-3">
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowReunionVirtual((v) => !v)}
+                aria-expanded={showReunionVirtual}
+                className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${showReunionVirtual ? "border-sky-400/30 bg-gradient-to-r from-sky-600/20 to-cyan-600/20 shadow-lg shadow-sky-950/20" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
+              >
+                <div className="font-semibold text-white">Reunion</div>
+                <div className="flex items-center gap-2">
+                  <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
+                    {visitaVirtual?.estado || "NO_INICIADA"}
+                  </Badge>
+                  <span className="text-white/70 text-lg leading-none">
+                    {showReunionVirtual ? "v" : ">"}
+                  </span>
+                </div>
+              </button>
+              {showReunionVirtual && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-semibold">Reunión virtual</div>
                 <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
@@ -2633,6 +3292,8 @@ export function Detalle({
                     : "Sin datos"}
                 </div>
               </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -110,6 +110,7 @@ class Estudio(models.Model):
     a_consideracion_cliente = models.BooleanField(default=False, help_text="Indica si el estudio fue creado bajo configuración personalizada del cliente (criterios no relevantes)")
 
     estado = models.CharField(max_length=20, choices=EstudioEstado.choices, default=EstudioEstado.EN_CAPTURA, db_index=True)
+    habilitado_candidato_at = models.DateTimeField(null=True, blank=True)
     enviado_at = models.DateTimeField(null=True, blank=True)
     observacion_analista = models.TextField(blank=True, default="")
     decision_final = models.CharField(max_length=10, choices=DecisionFinal.choices, default=DecisionFinal.PENDIENTE)
@@ -134,6 +135,20 @@ class Estudio(models.Model):
     @property
     def editable_por_candidato(self) -> bool:
         return self.estado in {EstudioEstado.EN_CAPTURA, EstudioEstado.DEVUELTO}
+
+    def marcar_habilitado_para_candidato(self, when=None):
+        if self.habilitado_candidato_at:
+            return
+        self.habilitado_candidato_at = when or timezone.now()
+        self.save(update_fields=["habilitado_candidato_at", "updated_at"])
+
+    def fecha_inicio_agendamiento(self):
+        base = self.habilitado_candidato_at or self.enviado_at
+        return base.date() if base else None
+
+    def fecha_limite_agendamiento(self):
+        fecha_inicio = self.fecha_inicio_agendamiento()
+        return calcular_fecha_limite(fecha_inicio) if fecha_inicio else None
 
     def marcar_enviado_por_candidato(self):
         self.estado = EstudioEstado.EN_REVISION
@@ -195,6 +210,117 @@ class DisponibilidadReunionCandidato(models.Model):
 
     def __str__(self):
         return f"Disponibilidad reunión estudio #{self.estudio_id}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Nuevo sistema de agendamiento tipo cita médica
+# ──────────────────────────────────────────────────────────────────────────────
+
+def calcular_fecha_limite(fecha_inicio):
+    """Retorna fecha_inicio + 3 días hábiles (salta sábado y domingo)."""
+    from datetime import timedelta
+    dias_habiles = 0
+    fecha = fecha_inicio
+    while dias_habiles < 3:
+        fecha += timedelta(days=1)
+        if fecha.weekday() < 5:   # 0=Lunes … 4=Viernes
+            dias_habiles += 1
+    return fecha
+
+
+class DisponibilidadAnalistaEstado(models.TextChoices):
+    DISPONIBLE = "DISPONIBLE", "Disponible"
+    RESERVADO  = "RESERVADO",  "Reservado"
+    CANCELADO  = "CANCELADO",  "Cancelado"
+
+
+class DisponibilidadAnalista(models.Model):
+    """
+    Disponibilidad global del analista (agenda del médico).
+    Cada slot representa 1 hora exacta y pertenece al analista, no al estudio.
+    Cuando un candidato lo reserva, `estado` pasa a RESERVADO y
+    `estudio_reservado` apunta al estudio correspondiente.
+    """
+    analista = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="disponibilidades_analista",
+    )
+    fecha       = models.DateField()
+    hora_inicio = models.TimeField()
+    hora_fin    = models.TimeField(editable=False)   # se calcula automáticamente
+    estado      = models.CharField(
+        max_length=20,
+        choices=DisponibilidadAnalistaEstado.choices,
+        default=DisponibilidadAnalistaEstado.DISPONIBLE,
+        db_index=True,
+    )
+    estudio_reservado = models.OneToOneField(
+        "studies.Estudio",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="slot_reunion_global",
+    )
+    creado_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["fecha", "hora_inicio"]
+        unique_together = ["analista", "fecha", "hora_inicio"]
+
+    def save(self, *args, **kwargs):
+        from datetime import datetime, timedelta
+        if self.hora_inicio:
+            dt = datetime.combine(datetime.today(), self.hora_inicio)
+            self.hora_fin = (dt + timedelta(hours=1)).time()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Disp. {self.analista} {self.fecha} {self.hora_inicio} [{self.estado}]"
+
+
+class ReunionVirtualAgendada(models.Model):
+    """
+    Registro de la reunión que el candidato agendó en un slot del analista.
+    Al cancelar, el slot vuelve a DISPONIBLE y otros candidatos pueden tomarlo.
+    """
+    class Estado(models.TextChoices):
+        PENDIENTE  = "PENDIENTE",  "Pendiente"
+        CONFIRMADA = "CONFIRMADA", "Confirmada"
+        CANCELADA  = "CANCELADA",  "Cancelada"
+        REALIZADA  = "REALIZADA",  "Realizada"
+
+    estudio = models.OneToOneField(
+        "studies.Estudio",
+        on_delete=models.CASCADE,
+        related_name="reunion_agendada",
+    )
+    slot = models.ForeignKey(
+        DisponibilidadAnalista,
+        on_delete=models.PROTECT,
+        related_name="reuniones_agendadas",
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+        db_index=True,
+    )
+    fecha_limite_agendamiento = models.DateField()
+    agendado_at  = models.DateTimeField(auto_now_add=True)
+    cancelado_at = models.DateTimeField(null=True, blank=True)
+    cancelado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reuniones_canceladas",
+    )
+    nota = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-agendado_at"]
+
+    def __str__(self):
+        return f"Reunión agendada estudio #{self.estudio_id} [{self.estado}]"
 
 
 class VisitaVirtualEstado(models.TextChoices):

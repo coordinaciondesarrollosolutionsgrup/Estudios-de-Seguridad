@@ -69,3 +69,35 @@ export const consentirVisitaVirtual = (estudioId) =>
 
 export const enviarUbicacionVisitaVirtual = (estudioId, payload) =>
   api.post(`/api/estudios/${estudioId}/visita-virtual/ubicacion/`, payload);
+
+// ===== Disponibilidad global del analista (agenda tipo médico) =====
+
+/** Listar slots del analista autenticado (o todos si admin). */
+export const getDisponibilidadAnalista = (params = {}) =>
+  api.get("/api/disponibilidad-analista/", { params });
+
+/** Crear slot de disponibilidad.  payload: { fecha, hora_inicio } */
+export const createDisponibilidadAnalista = (payload) =>
+  api.post("/api/disponibilidad-analista/", payload);
+
+/** Eliminar slot (solo si DISPONIBLE). */
+export const deleteDisponibilidadAnalista = (slotId) =>
+  api.delete(`/api/disponibilidad-analista/${slotId}/`);
+
+// ===== Reunión virtual agendada (candidato) =====
+
+/** Ver slots disponibles del analista para un estudio (dentro del plazo). */
+export const getSlotsDisponiblesReunion = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/reunion-agendada/slots-disponibles/`);
+
+/** Ver la reunión agendada del estudio. */
+export const getReunionAgendada = (estudioId) =>
+  api.get(`/api/estudios/${estudioId}/reunion-agendada/`);
+
+/** Candidato agenda un slot. payload: { slot_id, nota? } */
+export const agendarReunion = (estudioId, payload) =>
+  api.post(`/api/estudios/${estudioId}/reunion-agendada/agendar/`, payload);
+
+/** Candidato o analista cancela la reunión agendada. */
+export const cancelarReunion = (estudioId) =>
+  api.post(`/api/estudios/${estudioId}/reunion-agendada/cancelar/`);

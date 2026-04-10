@@ -1,0 +1,19 @@
+{{ saludo }}
+
+{{ titulo }}
+
+{{ mensaje }}
+
+Estudio: #{{ estudio_id }}
+Candidato: {{ candidato_nombre }}
+Analista: {{ analista_nombre }}
+Cliente: {{ empresa_nombre }}
+{% if fecha_reunion %}Fecha: {{ fecha_reunion|date:"d/m/Y" }}
+{% endif %}{% if hora_inicio %}Horario: {{ hora_inicio|time:"H:i" }}{% if hora_fin %} - {{ hora_fin|time:"H:i" }}{% endif %}
+{% endif %}{% if fecha_limite %}Fecha límite para agendar: {{ fecha_limite|date:"d/m/Y" }}
+{% endif %}Estado: {{ estado }}
+Detalle: {{ detalle_evento }}
+{% if nota %}Nota: {{ nota }}
+{% endif %}{% if meeting_url %}Enlace de la reunión: {{ meeting_url }}
+{% endif %}
+Acceso: {{ accion_url }}
