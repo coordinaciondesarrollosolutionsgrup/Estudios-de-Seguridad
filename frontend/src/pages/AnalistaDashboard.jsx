@@ -376,7 +376,11 @@ export default function AnalistaDashboard() {
     try {
       const { data } = await api.get(`/api/estudios/${id}/visita-virtual/`);
       setVisitaVirtual(data || null);
-      if (data?.meeting_url) setMeetingUrlDraft(data.meeting_url);
+      // No sobreescribir el draft que el analista está editando;
+      // solo inicializar si el campo está vacío
+      if (data?.meeting_url) {
+        setMeetingUrlDraft(prev => prev ? prev : data.meeting_url);
+      }
     } catch {
       setVisitaVirtual(null);
     }
@@ -468,6 +472,10 @@ export default function AnalistaDashboard() {
         api.get(`/api/estudios/${id}/reunion-agendada/slots-disponibles/`),
       ]);
       const slotsDisponibles = Array.isArray(slotsData?.slots) ? slotsData.slots : [];
+      // Solo inicializar el draft si el campo está vacío, para no pisar lo que el analista escribió
+      if (reunionData?.meeting_url) {
+        setMeetingUrlDraft(prev => prev ? prev : reunionData.meeting_url);
+      }
       setAgendaEstudio({
         reunion: reunionData?.slot ? reunionData : null,
         fechaLimite: reunionData?.fecha_limite || slotsData?.fecha_limite || null,
@@ -538,6 +546,31 @@ export default function AnalistaDashboard() {
     }
   };
 
+  const programarReunionVirtual = async () => {
+    if (!sel?.id) return;
+    const url = (meetingUrlDraft || "").trim();
+    if (!url) {
+      toast.error("Pega el link de la reunion creado en Google Calendar.");
+      return;
+    }
+    setAgendaEstudioBusy(true);
+    try {
+      await api.post(`/api/estudios/${sel.id}/visita-virtual/programar/`, {
+        meeting_url: url,
+      });
+      await Promise.all([loadAgendaEstudio(sel.id), loadVisitaVirtual(sel.id)]);
+      toast.success("Reunion programada. El candidato ya puede ver el enlace.");
+    } catch (e) {
+      const detail =
+        e?.response?.data?.detail ||
+        e?.response?.data?.meeting_url?.[0] ||
+        "No se pudo guardar la programacion de la reunion.";
+      toast.error(detail);
+    } finally {
+      setAgendaEstudioBusy(false);
+    }
+  };
+
   // â”€â”€ Helpers para el calendario de agenda â”€â”€
   const HORAS_AGENDA = ['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
 
@@ -581,7 +614,7 @@ export default function AnalistaDashboard() {
 
   const iniciarVisitaVirtual = async () => {
     if (!sel?.id) return;
-    const url = (meetingUrlDraft || "").trim();
+    const url = (meetingUrlDraft || agendaEstudio?.reunion?.meeting_url || "").trim();
     if (!url) {
       toast.error("Ingresa el link de la reunión virtual.");
       return;
@@ -620,6 +653,7 @@ export default function AnalistaDashboard() {
     try {
       setShowDisponibilidad(false);
       setShowReunionVirtual(false);
+      setMeetingUrlDraft("");
       const [{ data }, bioRes] = await Promise.allSettled([
         api.get(`/api/estudios/${id}/`),
         api.get(`/api/estudios/${id}/candidato_bio/`),
@@ -2559,6 +2593,7 @@ export default function AnalistaDashboard() {
               agendaEstudio={agendaEstudio}
               agendaEstudioBusy={agendaEstudioBusy}
               cancelarReunionAgendada={cancelarReunionAgendada}
+              programarReunionVirtual={programarReunionVirtual}
               abrirAgenda={() => setShowAgenda(true)}
               disponibilidadReunion={disponibilidadReunion}
               showDisponibilidad={showDisponibilidad}
@@ -2603,6 +2638,7 @@ export default function AnalistaDashboard() {
             agendaEstudio={agendaEstudio}
             agendaEstudioBusy={agendaEstudioBusy}
             cancelarReunionAgendada={cancelarReunionAgendada}
+            programarReunionVirtual={programarReunionVirtual}
             abrirAgenda={() => setShowAgenda(true)}
             disponibilidadReunion={disponibilidadReunion}
             showDisponibilidad={showDisponibilidad}
@@ -2761,6 +2797,7 @@ export function Detalle({
   agendaEstudio,
   agendaEstudioBusy,
   cancelarReunionAgendada,
+  programarReunionVirtual,
   abrirAgenda,
   disponibilidadReunion,
   showDisponibilidad,
@@ -2785,6 +2822,10 @@ export function Detalle({
   const isOwner = !!sel?.es_propietario;
   const fill = resumen?.fill_candidato || {};
   const reunionActiva = agendaEstudio?.reunion && ["PENDIENTE", "CONFIRMADA"].includes(agendaEstudio.reunion.estado);
+  const visitaActiva = (visitaVirtual?.estado || "").toUpperCase() === "ACTIVA";
+  const reunionProgramada = (agendaEstudio?.reunion?.meeting_url || "").trim();
+  const draftLimpio = (meetingUrlDraft || "").trim();
+  const draftCambio = !!draftLimpio && draftLimpio !== reunionProgramada;
   const formatearFecha = (valor) => {
     if (!valor) return "—";
     return new Date(`${valor}T00:00:00`).toLocaleDateString("es-CO", {
@@ -2805,16 +2846,16 @@ export function Detalle({
           {/* Banner: Estudio a consideración del cliente (ahora dentro del panel, no fixed) */}
           {sel.a_consideracion_cliente && (
             <div
-              className="mb-3 p-4 border border-yellow-400/40 bg-yellow-100/90 shadow-xl rounded-xl"
+              className="mb-3 p-4 border border-red-400/30 bg-red-500/10 shadow-xl rounded-xl backdrop-blur-md"
             >
-              <span className="text-amber-700 font-semibold text-base flex items-start gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mt-0.5 shrink-0 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <span className="text-red-300 font-semibold text-base flex items-start gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mt-0.5 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
                   Este estudio fue creado bajo consideración del cliente. Los criterios seleccionados como no relevantes fueron configurados por el cliente y el resultado debe ser interpretado bajo esa política.
                   {Array.isArray(sel.politicas_no_relevantes) && sel.politicas_no_relevantes.length > 0 && (
-                    <span className="block mt-1 font-normal text-sm text-amber-800">
+                    <span className="block mt-1 font-normal text-sm text-red-400/80">
                       Criterios no relevantes: ({sel.politicas_no_relevantes.join(", ")})
                     </span>
                   )}
@@ -2921,381 +2962,248 @@ export function Detalle({
           </div>
 
           {/* Disponibilidad al candidato — colapsable */}
-          {isOwner && (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setShowDisponibilidad((v) => !v)}
-                aria-expanded={showDisponibilidad}
-                className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                  showDisponibilidad
-                    ? "border-violet-400/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 shadow-lg shadow-violet-950/20"
-                    : "border-violet-400/20 bg-violet-500/10 hover:bg-violet-500/15"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-500/15 text-violet-200 text-sm font-semibold flex-shrink-0">
-                      D
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-semibold text-sm text-violet-100 tracking-tight">Disponibilidad</div>
-                      <div className="text-xs text-violet-200/70 truncate">
-                        {reunionActiva
-                          ? `Reservada para ${agendaEstudio.reunion.slot?.fecha} a las ${agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)}`
-                          : agendaEstudio?.vencido
-                            ? "Plazo de agendamiento vencido"
-                            : sel?.habilitado_candidato_at
-                              ? `${agendaEstudio?.totalSlotsDisponibles || 0} horario${agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"} disponible${agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"}`
-                              : "Pendiente por habilitar al candidato"}
-                      </div>
-                    </div>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowDisponibilidad((v) => !v)}
+              aria-expanded={showDisponibilidad}
+              className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                showDisponibilidad
+                  ? "border-violet-400/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 shadow-lg shadow-violet-950/20"
+                  : "border-violet-400/20 bg-violet-500/10 hover:bg-violet-500/15"
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-500/15 text-violet-200 text-sm font-semibold flex-shrink-0">
+                  D
+                </span>
+                <div className="min-w-0">
+                  <div className="font-semibold text-sm text-violet-100 tracking-tight">Disponibilidad</div>
+                  <div className="text-xs text-violet-200/70 truncate">
+                    {reunionActiva
+                      ? `Reservada para ${agendaEstudio.reunion.slot?.fecha} a las ${agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)}`
+                      : agendaEstudio?.totalSlotsDisponibles > 0
+                        ? `${agendaEstudio.totalSlotsDisponibles} horario${agendaEstudio.totalSlotsDisponibles === 1 ? "" : "s"} disponibles`
+                        : "Sin horarios disponibles"}
                   </div>
-                  <span className="text-violet-200/80 text-lg leading-none">
-                    {showDisponibilidad ? "▾" : "▸"}
-                  </span>
                 </div>
-              </button>
+              </div>
+              <span className="text-violet-200/80 text-lg leading-none">
+                {showDisponibilidad ? "v" : ">"}
+              </span>
+            </button>
 
-              {showDisponibilidad && (
-                <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/50 to-indigo-950/50 p-4 text-white space-y-4">
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                      <div className="text-[11px] uppercase tracking-widest text-white/35">Estudio habilitado</div>
-                      <div className="mt-1 text-sm font-semibold text-white">
-                        {sel?.habilitado_candidato_at ? "Sí" : "No"}
-                      </div>
-                      <div className="mt-1 text-xs text-white/55">
-                        {sel?.habilitado_candidato_at
-                          ? "Desde aquí corre el plazo para agendar."
-                          : "Primero debes invitar al candidato para abrir la agenda."}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                      <div className="text-[11px] uppercase tracking-widest text-white/35">Fecha límite</div>
-                      <div className="mt-1 text-sm font-semibold text-white">
-                        {formatearFecha(agendaEstudio?.fechaLimite || sel?.fecha_limite_agendamiento)}
-                      </div>
-                      <div className="mt-1 text-xs text-white/55">
-                        Ventana máxima de 3 días hábiles para agendar.
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                      <div className="text-[11px] uppercase tracking-widest text-white/35">Agenda disponible</div>
-                      <div className="mt-1 text-sm font-semibold text-white">
-                        {agendaEstudio?.totalSlotsDisponibles || 0} horario{agendaEstudio?.totalSlotsDisponibles === 1 ? "" : "s"}
-                      </div>
-                      <div className="mt-1 text-xs text-white/55">
-                        Se toma desde tu agenda global y se bloquea al reservarse.
-                      </div>
+            {showDisponibilidad && (
+              <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/50 to-indigo-950/50 p-3 text-white overflow-hidden space-y-3">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Estudio habilitado</div>
+                    <div className="mt-1 text-lg font-semibold text-white">{sel?.habilitado_candidato_at ? "Si" : "No"}</div>
+                    <div className="mt-1 text-xs text-white/55">
+                      {sel?.habilitado_candidato_at ? "Desde aqui corre el plazo para agendar." : "Invita al candidato para habilitar el agendamiento."}
                     </div>
                   </div>
-
-                  <div className="rounded-xl border border-violet-300/15 bg-violet-500/10 p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-violet-100">
-                      Administra los horarios desde <span className="font-semibold">Mi Agenda</span>. Cada espacio dura exactamente 1 hora y sirve para todos tus estudios activos.
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Fecha limite</div>
+                    <div className="mt-1 text-lg font-semibold text-white">
+                      {agendaEstudio?.fechaLimite ? formatearFecha(agendaEstudio.fechaLimite) : "Pendiente"}
                     </div>
-                    <button
-                      type="button"
-                      onClick={abrirAgenda}
-                      className="rounded-xl border border-violet-300/20 bg-violet-500/20 px-4 py-2 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/30"
-                    >
-                      Abrir Mi Agenda
-                    </button>
+                    <div className="mt-1 text-xs text-white/55">
+                      {agendaEstudio?.vencido ? "La ventana para agendar ya vencio." : "Ventana maxima de 3 dias habiles para agendar."}
+                    </div>
                   </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Agenda disponible</div>
+                    <div className="mt-1 text-lg font-semibold text-white">{agendaEstudio?.totalSlotsDisponibles || 0} horarios</div>
+                    <div className="mt-1 text-xs text-white/55">Se toma desde tu agenda global y se bloquea al reservarse.</div>
+                  </div>
+                </div>
 
-                  {reunionActiva ? (
-                    <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-emerald-200">Horario tomado por el candidato</div>
-                        <Badge color={agendaEstudio.reunion.estado === "CONFIRMADA" ? "green" : "amber"}>
-                          {agendaEstudio.reunion.estado}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-4 text-sm text-emerald-100/90">
-                        <span>Fecha: {agendaEstudio.reunion.slot?.fecha}</span>
-                        <span>Hora: {agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)} — {agendaEstudio.reunion.slot?.hora_fin?.slice(0, 5)}</span>
-                      </div>
-                      {agendaEstudio.reunion.nota && (
-                        <div className="text-xs text-emerald-100/70">Nota del candidato: {agendaEstudio.reunion.nota}</div>
+                <div className="rounded-xl border border-violet-300/15 bg-violet-500/10 p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-violet-100">
+                    Administra los horarios desde <span className="font-semibold">Mi Agenda</span>. Cada espacio dura exactamente 1 hora y sirve para todos tus estudios activos.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={abrirAgenda}
+                    className="rounded-xl border border-violet-300/20 bg-violet-500/20 px-4 py-2 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/30"
+                  >
+                    Abrir Mi Agenda
+                  </button>
+                </div>
+
+                {reunionActiva ? (
+                  <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-emerald-200">Horario tomado por el candidato</div>
+                      <Badge color={agendaEstudio.reunion.estado === "CONFIRMADA" ? "green" : "amber"}>
+                        {agendaEstudio.reunion.estado}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-sm text-emerald-100/90">
+                      <span>Fecha: {agendaEstudio.reunion.slot?.fecha}</span>
+                      <span>Hora: {agendaEstudio.reunion.slot?.hora_inicio?.slice(0, 5)} - {agendaEstudio.reunion.slot?.hora_fin?.slice(0, 5)}</span>
+                    </div>
+                    {agendaEstudio.reunion.nota && (
+                      <div className="text-xs text-emerald-100/70">Nota del candidato: {agendaEstudio.reunion.nota}</div>
+                    )}
+                    <div className="rounded-xl border border-white/10 bg-black/10 p-3 text-xs text-emerald-100/80 space-y-1">
+                      <div className="font-semibold text-emerald-200">Enlace de reunion</div>
+                      {reunionProgramada ? (
+                        <div className="break-all">{reunionProgramada}</div>
+                      ) : agendaEstudio.reunion.google_calendar_url ? (
+                        <div>Abre Google Calendar, crea la reunion y luego pega aqui el link final para compartirlo con el candidato.</div>
+                      ) : (
+                        <div>El enlace de la reunion se mostrara aqui cuando quede disponible.</div>
                       )}
-                      <div className="flex justify-end">
+                    </div>
+                    {!!agendaEstudio.reunion.google_calendar_url && (
+                      <div className="space-y-2 rounded-xl border border-sky-300/20 bg-sky-500/10 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200/80">
+                          Programacion manual
+                        </div>
+                        <div className="text-xs text-sky-100/80">
+                          1. Abre Google Calendar. 2. Guarda el evento con Meet. 3. Pega el link generado para enviarlo al candidato, analista y cliente.
+                        </div>
+                        <input
+                          type="text"
+                          value={meetingUrlDraft}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            // Si el texto tiene saltos de línea o espacios (texto copiado de invitación),
+                            // extraer el primer link https://meet.google.com/... o el primer https:// encontrado
+                            if (raw.includes("\n") || raw.includes(" ")) {
+                              const meetMatch = raw.match(/https:\/\/meet\.google\.com\/[^\s]+/);
+                              if (meetMatch) {
+                                setMeetingUrlDraft(meetMatch[0].replace(/[.,;]+$/, ""));
+                                return;
+                              }
+                              const anyHttps = raw.match(/https?:\/\/[^\s]+/);
+                              if (anyHttps) {
+                                setMeetingUrlDraft(anyHttps[0].replace(/[.,;]+$/, ""));
+                                return;
+                              }
+                            }
+                            setMeetingUrlDraft(raw);
+                          }}
+                          placeholder="https://meet.google.com/..."
+                          className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/35 outline-none focus:border-sky-300/40"
+                        />
+                      </div>
+                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {agendaEstudio.reunion.google_calendar_url ? (
+                        <a
+                          href={agendaEstudio.reunion.google_calendar_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl border border-sky-300/40 px-4 py-2 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/10"
+                        >
+                          Abrir en Google Calendar
+                        </a>
+                      ) : null}
+                      {!!agendaEstudio.reunion.google_calendar_url && (!reunionProgramada || draftCambio) && (
                         <button
                           type="button"
-                          onClick={cancelarReunionAgendada}
-                          disabled={agendaEstudioBusy}
-                          className="rounded-xl bg-rose-600/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:opacity-50"
+                          onClick={programarReunionVirtual}
+                          disabled={agendaEstudioBusy || !draftLimpio}
+                          className="rounded-xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/10 disabled:opacity-50"
                         >
-                          {agendaEstudioBusy ? "Liberando..." : "Liberar horario"}
+                          {agendaEstudioBusy ? "Guardando..." : reunionProgramada ? "Actualizar programacion" : "Guardar programacion"}
                         </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/75">
-                      {agendaEstudio?.mensaje ||
-                        (agendaEstudio?.vencido
-                          ? "El plazo de agendamiento ya venció para este estudio."
-                          : sel?.habilitado_candidato_at
-                            ? "El candidato todavía no ha reservado un horario para este estudio."
-                            : "Invita al candidato para abrir su ventana de agendamiento.")}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {false && isOwner && (() => {
-            const HORAS_SLOT = ['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
-            const horaSeleccionada = slotForm?.hora_inicio || "";
-            const fechaOk = !!(slotForm?.fecha);
-            const slotElegido = disponibilidadReunion?.slot_seleccionado;
-            return (
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDisponibilidad((v) => !v)}
-                  aria-expanded={showDisponibilidad}
-                  className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                    showDisponibilidad
-                      ? "border-violet-400/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 shadow-lg shadow-violet-950/20"
-                      : "border-violet-400/20 bg-violet-500/10 hover:bg-violet-500/15"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-500/15 text-violet-200 text-sm font-semibold flex-shrink-0">
-                        D
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-semibold text-sm text-violet-100 tracking-tight">Disponibilidad</div>
-                        <div className="text-xs text-violet-200/70 truncate">
-                          {slotElegido
-                            ? `Candidato confirmó ${slotElegido.fecha} a las ${slotElegido.hora_inicio.slice(0,5)}`
-                            : slots.length > 0
-                              ? `${slots.length} horario${slots.length === 1 ? "" : "s"} propuesto${slots.length === 1 ? "" : "s"}`
-                              : "Proponer disponibilidad al candidato"}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {slots.length > 0 && (
-                        <span className="rounded-full border border-violet-300/20 bg-violet-500/15 px-2.5 py-1 text-[11px] font-semibold text-violet-100">
-                          {slots.length}
-                        </span>
                       )}
-                      <span className="text-violet-200/80 text-lg leading-none">
-                        {showDisponibilidad ? "▾" : "▸"}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-
-                {showDisponibilidad && (
-                  <div className="rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/50 to-indigo-950/50 p-3 text-white overflow-hidden space-y-3">
-                {/* Picker de fecha */}
-                <div className="rounded-xl border border-white/8 bg-white/5 p-3 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1">
-                      <label className="block text-[10px] font-bold text-white/35 uppercase tracking-widest mb-1.5">Fecha</label>
-                      <input
-                        type="date"
-                        value={slotForm?.fecha || ""}
-                        onChange={(e) => setSlotForm((f) => ({ ...f, fecha: e.target.value }))}
-                        className="w-full rounded-lg border border-white/10 bg-white/8 px-3 py-2 text-sm text-white outline-none focus:border-violet-400/60 focus:bg-violet-500/10 transition"
-                      />
-                    </div>
-                    {horaSeleccionada && fechaOk && (
-                      <div className="flex-shrink-0 mt-5">
+                      {reunionProgramada && !visitaActiva && (
                         <button
-                          onClick={agregarSlot}
-                          disabled={slotBusy}
-                          className="rounded-xl bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 text-sm font-semibold transition disabled:opacity-50 whitespace-nowrap shadow-lg shadow-violet-900/40"
+                          type="button"
+                          onClick={iniciarVisitaVirtual}
+                          disabled={visitaBusy}
+                          className="rounded-xl bg-emerald-600/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-50"
                         >
-                          {slotBusy ? "Guardando…" : "+ Agregar"}
+                          {visitaBusy ? "Iniciando..." : "Iniciar visita"}
                         </button>
+                      )}
+                      {reunionProgramada && visitaActiva && (
+                        <a
+                          href={reunionProgramada}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-400/10"
+                        >
+                          Abrir reunion
+                        </a>
+                      )}
+                      {visitaActiva && (
+                        <button
+                          type="button"
+                          onClick={finalizarVisitaVirtual}
+                          disabled={visitaBusy}
+                          className="rounded-xl border border-amber-300/40 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/10 disabled:opacity-50"
+                        >
+                          {visitaBusy ? "Finalizando..." : "Finalizar visita"}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={cancelarReunionAgendada}
+                        disabled={agendaEstudioBusy}
+                        className="rounded-xl bg-rose-600/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:opacity-50"
+                      >
+                        {agendaEstudioBusy ? "Liberando..." : "Liberar horario"}
+                      </button>
+                    </div>
+
+                    {/* Ubicacion en tiempo real del candidato - solo cuando visita ACTIVA */}
+                    {visitaActiva && (
+                      <div className="rounded-xl border border-violet-400/20 bg-violet-500/10 p-3 space-y-1.5">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span className="text-xs font-semibold text-violet-200">Ubicación del candidato</span>
+                          </div>
+                          {visitaVirtual?.consentida_por_candidato ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">Consentida</span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">Esperando consentimiento</span>
+                          )}
+                        </div>
+                        {visitaVirtual?.ultima_latitud && visitaVirtual?.ultima_longitud ? (
+                          <>
+                            <div className="text-xs text-white/55">
+                              Lat: {Number(visitaVirtual.ultima_latitud).toFixed(5)} — Lng: {Number(visitaVirtual.ultima_longitud).toFixed(5)}
+                              {visitaVirtual.ultima_precision_m && ` (±${Math.round(visitaVirtual.ultima_precision_m)} m)`}
+                            </div>
+                            <a
+                              href={`https://www.google.com/maps?q=${visitaVirtual.ultima_latitud},${visitaVirtual.ultima_longitud}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-1 px-3 py-1 rounded-full text-xs font-semibold border border-violet-300/30 text-violet-100 hover:bg-violet-400/15 transition"
+                            >
+                              Ver en Google Maps
+                            </a>
+                          </>
+                        ) : (
+                          <div className="text-xs text-white/40 italic">
+                            {visitaVirtual?.consentida_por_candidato
+                              ? "Esperando primera señal de ubicación del candidato…"
+                              : "El candidato aún no ha aceptado compartir su ubicación."}
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-
-                  {/* Selector de hora por botones */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-white/35 uppercase tracking-widest mb-2">
-                      Hora inicio {horaSeleccionada ? <span className="normal-case font-normal text-violet-300/80">— seleccionada: {horaSeleccionada}</span> : <span className="normal-case font-normal text-white/25">— elige una hora</span>}
-                    </label>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                      {HORAS_SLOT.map(h => {
-                        const isActive = horaSeleccionada === h;
-                        const slotExistente = slots.find(s => s.fecha === slotForm?.fecha && s.hora_inicio.slice(0,5) === h);
-                        return (
-                          <button
-                            key={h}
-                            onClick={() => setSlotForm((f) => ({ ...f, hora_inicio: isActive ? "" : h }))}
-                            disabled={!!slotExistente}
-                            title={slotExistente ? "Ya existe un slot en este horario" : `Seleccionar ${h}`}
-                            className={`rounded-lg py-1.5 text-xs font-medium transition border
-                              ${isActive
-                                ? 'bg-violet-500/50 border-violet-400/70 text-violet-100 ring-1 ring-violet-400/50'
-                                : slotExistente
-                                  ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300/70 cursor-not-allowed'
-                                  : 'border-white/8 bg-white/5 text-white/60 hover:bg-violet-500/20 hover:border-violet-400/40 hover:text-white'
-                              }
-                            `}
-                          >
-                            {h}
-                            {slotExistente && <div className="text-[8px] text-emerald-400/60 mt-0.5">✓ agregado</div>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Hora fin — colapsada y discreta */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-[10px] text-white/25 flex-shrink-0">Hora fin (opcional):</label>
-                    <input
-                      type="time"
-                      value={slotForm?.hora_fin || ""}
-                      onChange={(e) => setSlotForm((f) => ({ ...f, hora_fin: e.target.value }))}
-                      className="rounded-md border border-white/8 bg-white/5 px-2 py-0.5 text-xs text-white/50 outline-none focus:border-violet-400/40 focus:text-white transition w-28"
-                    />
-                    <span className="text-[10px] text-white/20 italic">si no se indica, se usa 1 hora automáticamente</span>
-                  </div>
-                </div>
-
-                {/* Lista de slots ofrecidos */}
-                {slots.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold text-white/35 uppercase tracking-widest px-0.5">Horarios ofrecidos al candidato</div>
-                    {slots.map((s) => {
-                      const elegido = disponibilidadReunion?.slot_seleccionado?.id === s.id;
-                      return (
-                        <div
-                          key={s.id}
-                          className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm border transition ${
-                            elegido
-                              ? "border-emerald-400/40 bg-emerald-500/12 text-emerald-100"
-                              : "border-white/8 bg-white/4 text-white/75"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            {elegido
-                              ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/30">✓ Elegido</span>
-                              : <span className="w-1.5 h-1.5 rounded-full bg-violet-400/50 flex-shrink-0"></span>
-                            }
-                            <span className="font-medium">{new Date(s.fecha + "T00:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" })}</span>
-                            <span className="text-white/30">·</span>
-                            <span className="text-white/80">{s.hora_inicio.slice(0,5)}{s.hora_fin ? ` — ${s.hora_fin.slice(0,5)}` : ""}</span>
-                          </div>
-                          <button
-                            onClick={() => eliminarSlot(s.id)}
-                            disabled={slotBusy}
-                            className="text-[11px] text-rose-400/50 hover:text-rose-400 transition disabled:opacity-30 px-2 py-0.5 rounded-md hover:bg-rose-500/10"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      );
-                    })}
                   </div>
                 ) : (
-                  <div className="text-xs text-white/30 italic text-center py-1">
-                    Elige una fecha y una hora para agregar disponibilidad al candidato.
-                  </div>
-                )}
-
-                {/* Confirmación del candidato */}
-                {disponibilidadReunion?.slot_seleccionado && (
-                  <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 space-y-1">
-                    <div className="text-xs font-semibold text-emerald-300">Candidato confirmó asistencia</div>
-                    <div className="text-xs text-emerald-200/80">
-                      {disponibilidadReunion.slot_seleccionado.fecha} a las {disponibilidadReunion.slot_seleccionado.hora_inicio.slice(0,5)}
-                    </div>
-                    {disponibilidadReunion.nota && (
-                      <div className="text-xs text-emerald-200/60 italic">Nota: {disponibilidadReunion.nota}</div>
-                    )}
-                  </div>
-                )}
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/75">
+                    {agendaEstudio?.mensaje ||
+                      (agendaEstudio?.vencido
+                        ? "El plazo de agendamiento ya vencio para este estudio."
+                        : sel?.habilitado_candidato_at
+                          ? "El candidato todav?a no ha reservado un horario para este estudio."
+                          : "Invita al candidato para abrir su ventana de agendamiento.")}
                   </div>
                 )}
               </div>
-            );
-          })()}
-
-          {isOwner && (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setShowReunionVirtual((v) => !v)}
-                aria-expanded={showReunionVirtual}
-                className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${showReunionVirtual ? "border-sky-400/30 bg-gradient-to-r from-sky-600/20 to-cyan-600/20 shadow-lg shadow-sky-950/20" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
-              >
-                <div className="font-semibold text-white">Reunion</div>
-                <div className="flex items-center gap-2">
-                  <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
-                    {visitaVirtual?.estado || "NO_INICIADA"}
-                  </Badge>
-                  <span className="text-white/70 text-lg leading-none">
-                    {showReunionVirtual ? "v" : ">"}
-                  </span>
-                </div>
-              </button>
-              {showReunionVirtual && (
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold">Reunión virtual</div>
-                <Badge color={(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" ? "green" : "slate"}>
-                  {visitaVirtual?.estado || "NO_INICIADA"}
-                </Badge>
-              </div>
-
-              <div className="grid md:grid-cols-[1fr_auto_auto] gap-2">
-                <input
-                  type="url"
-                  placeholder="https://meet.google.com/..."
-                  value={meetingUrlDraft || ""}
-                  onChange={(e) => setMeetingUrlDraft(e.target.value)}
-                  className="rounded-xl border border-white/10 bg-white/10 text-white placeholder-white/40 p-2 text-sm outline-none focus:border-white/30 focus:ring-0"
-                  disabled={visitaBusy || isClosed}
-                />
-                <button
-                  onClick={iniciarVisitaVirtual}
-                  disabled={visitaBusy || isClosed}
-                  className="rounded-xl bg-blue-600/90 hover:bg-blue-600 text-white px-3 py-2 text-sm transition disabled:opacity-60"
-                >
-                  {visitaBusy ? "Procesando..." : "Iniciar visita"}
-                </button>
-                <button
-                  onClick={finalizarVisitaVirtual}
-                  disabled={visitaBusy || isClosed || (visitaVirtual?.estado || "").toUpperCase() !== "ACTIVA"}
-                  className="rounded-xl border border-white/10 hover:bg-white/5 px-3 py-2 text-sm disabled:opacity-60"
-                >
-                  Finalizar
-                </button>
-              </div>
-
-              <div className="text-xs text-white/70 space-y-1">
-                <div>
-                  Consentimiento ubicación:{" "}
-                  <span className="text-white">{visitaVirtual?.consentida_por_candidato ? "Aceptado" : "Pendiente"}</span>
-                </div>
-                <div>
-                  Última ubicación:{" "}
-                  {visitaVirtual?.ultima_latitud != null && visitaVirtual?.ultima_longitud != null
-                    ? `${visitaVirtual.ultima_latitud}, ${visitaVirtual.ultima_longitud}`
-                    : "Sin datos"}
-                </div>
-                <div>
-                  Última actualización:{" "}
-                  {visitaVirtual?.ultima_actualizacion_at
-                    ? new Date(visitaVirtual.ultima_actualizacion_at).toLocaleString()
-                    : "Sin datos"}
-                </div>
-              </div>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Tabs */}
           <div className="mt-1">

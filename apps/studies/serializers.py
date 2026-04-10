@@ -1,7 +1,11 @@
-﻿# apps/studies/serializers.py
-from rest_framework import serializers
+# apps/studies/serializers.py
+from datetime import datetime
+from urllib.parse import urlencode
+
+from django.conf import settings
 from django.utils import timezone
 from django.utils.module_loading import import_string
+from rest_framework import serializers
 from apps.candidates.serializers import CandidatoBioSerializer
 
 from .models import (
@@ -799,16 +803,52 @@ class DisponibilidadAnalistaSerializer(serializers.ModelSerializer):
 
 class ReunionVirtualAgendadaSerializer(serializers.ModelSerializer):
     slot = DisponibilidadAnalistaSerializer(read_only=True)
+    google_calendar_url = serializers.SerializerMethodField()
+
+    def get_google_calendar_url(self, obj):
+        slot = getattr(obj, "slot", None)
+        estudio = getattr(obj, "estudio", None)
+        solicitud = getattr(estudio, "solicitud", None)
+        if not slot or not estudio or not solicitud or not slot.fecha or not slot.hora_inicio or not slot.hora_fin:
+            return ""
+
+        inicio = datetime.combine(slot.fecha, slot.hora_inicio)
+        fin = datetime.combine(slot.fecha, slot.hora_fin)
+        candidato = getattr(solicitud, "candidato", None)
+        analista = getattr(solicitud, "analista", None)
+        empresa = getattr(solicitud, "empresa", None)
+        frontend = (getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+
+        detalle = [
+            f"Estudio #{estudio.id}",
+            f"Candidato: {getattr(candidato, 'nombre', '') or getattr(candidato, 'email', '')}",
+            f"Analista: {getattr(analista, 'username', '') or getattr(analista, 'email', '')}",
+            f"Cliente: {getattr(empresa, 'nombre', '') or getattr(empresa, 'email', '')}",
+        ]
+        if obj.nota:
+            detalle.append(f"Nota: {obj.nota}")
+        if frontend:
+            detalle.append(f"Portal: {frontend}")
+
+        params = {
+            "action": "TEMPLATE",
+            "text": f"Reunion virtual estudio #{estudio.id}",
+            "dates": f"{inicio.strftime('%Y%m%dT%H%M%S')}/{fin.strftime('%Y%m%dT%H%M%S')}",
+            "details": "\n".join(detalle),
+            "location": "Virtual",
+            "ctz": getattr(settings, "TIME_ZONE", "America/Bogota"),
+        }
+        return f"https://calendar.google.com/calendar/render?{urlencode(params)}"
 
     class Meta:
         model = ReunionVirtualAgendada
         fields = [
             'id', 'estudio', 'slot', 'estado',
             'fecha_limite_agendamiento', 'agendado_at',
-            'cancelado_at', 'nota',
+            'cancelado_at', 'meeting_url', 'google_calendar_url', 'nota',
         ]
         read_only_fields = [
             'id', 'estudio', 'slot', 'estado',
-            'fecha_limite_agendamiento', 'agendado_at', 'cancelado_at',
+            'fecha_limite_agendamiento', 'agendado_at', 'cancelado_at', 'meeting_url', 'google_calendar_url',
         ]
 

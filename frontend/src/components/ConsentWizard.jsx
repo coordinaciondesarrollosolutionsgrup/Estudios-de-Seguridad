@@ -24,7 +24,7 @@ const STEP_META = {
   },
 };
 
-function SignatureCanvas({ onChange, className = "", width = 520, height = 160 }) {
+function SignatureCanvas({ onChange, className = "" }) {
   const ref = useRef(null);
   const drawing = useRef(false);
   const last = useRef({ x: 0, y: 0 });
@@ -34,17 +34,16 @@ function SignatureCanvas({ onChange, className = "", width = 520, height = 160 }
     const c = ref.current;
     if (!c) return;
     const ctx = c.getContext("2d");
-    const ratio = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-    c.width = width * ratio;
-    c.height = height * ratio;
-    c.style.width = `${width}px`;
-    c.style.height = `${height}px`;
-    ctx.scale(ratio, ratio);
+    // Usar el tamaño real del elemento para que cursor y trazo coincidan exactamente
+    const w = c.offsetWidth;
+    const h = c.offsetHeight;
+    c.width = w;
+    c.height = h;
     ctx.lineWidth = 2.2;
     ctx.lineCap = "round";
     ctx.strokeStyle = "#111";
     c.style.background = "#fff";
-  }, [width, height]);
+  }, []);
 
   const pos = (e) => {
     const c = ref.current;
@@ -83,7 +82,8 @@ function SignatureCanvas({ onChange, className = "", width = 520, height = 160 }
     drawing.current = false;
     const MIN_PX = 12;
     if (pathLenRef.current >= MIN_PX) {
-      onChange?.(ref.current.toDataURL("image/png"));
+      // JPEG al 80% reduce el payload ~10x respecto a PNG
+      onChange?.(ref.current.toDataURL("image/jpeg", 0.8));
       return;
     }
     const c = ref.current;
@@ -102,10 +102,11 @@ function SignatureCanvas({ onChange, className = "", width = 520, height = 160 }
 
   return (
     <div className={className}>
-      <div className="rounded-xl border border-white/15 bg-slate-800/70 p-2">
+      <div className="rounded-xl overflow-hidden border border-white/20 shadow-inner" style={{ width: 480, height: 160 }}>
         <canvas
           ref={ref}
-          className="touch-none select-none rounded-lg"
+          className="touch-none select-none block"
+          style={{ width: 480, height: 160 }}
           onMouseDown={start}
           onMouseMove={move}
           onMouseUp={end}
@@ -118,8 +119,11 @@ function SignatureCanvas({ onChange, className = "", width = 520, height = 160 }
       <button
         type="button"
         onClick={clear}
-        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700/70"
+        className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/10 transition"
       >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
         Limpiar firma
       </button>
     </div>
@@ -153,8 +157,23 @@ const LineInput = memo(function LineInput({ value, onCommit, placeholder, classN
 const fileToDataURL = (file) =>
   new Promise((resolve, reject) => {
     const r = new FileReader();
-    r.onload = () => resolve(r.result);
     r.onerror = reject;
+    r.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const MAX = 800;
+        const scale = img.width > MAX ? MAX / img.width : 1;
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL("image/jpeg", 0.8));
+      };
+      img.src = r.result;
+    };
     r.readAsDataURL(file);
   });
 
@@ -279,39 +298,45 @@ function TextConsentStep({
         Requisito obligatorio: dibuja tu firma y sube una imagen de tu firma para continuar.
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <div className="mb-1 text-sm font-medium text-slate-200">1) Dibuja tu firma</div>
+      <div className="flex flex-wrap gap-4">
+        {/* Col 1: dibujar firma */}
+        <div className="flex-1 min-w-[300px] rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-xs font-bold text-blue-300 border border-blue-400/30">1</span>
+            <span className="text-sm font-medium text-slate-200">Dibuja tu firma</span>
+          </div>
+          <p className="text-xs text-slate-400">Usa el mouse o tu dedo para firmar en el recuadro.</p>
           <SignatureCanvas
             onChange={(dataUrl) => {
               const ok = dataUrl && dataUrl.startsWith("data:image") && dataUrl.length > 100;
               setFirmaDraw(ok ? dataUrl : null);
             }}
-            width={520}
-            height={160}
           />
         </div>
 
-        <div className="rounded-xl border border-white/15 bg-slate-800/70 p-3">
-          <div className="mb-1 text-sm font-medium text-slate-200">2) Sube imagen de firma</div>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={onPickFile}
-            className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-white/10 file:bg-white/10 file:px-3 file:py-1.5 file:text-white file:hover:bg-white/20"
-          />
-          {uploadPreview && (
-            <div className="mt-3">
-              <img
-                src={uploadPreview}
-                alt="Firma seleccionada"
-                className="h-24 rounded-md border border-white/15 bg-white object-contain"
-              />
+        {/* Col 2: subir imagen */}
+        <div className="w-48 shrink-0 rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500/20 text-xs font-bold text-blue-300 border border-blue-400/30">2</span>
+            <span className="text-sm font-medium text-slate-200">Sube tu firma</span>
+          </div>
+          <p className="text-xs text-slate-400">PNG o JPG.</p>
+          <label className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed border-white/20 bg-white/5 px-2 py-2 text-xs text-slate-300 hover:bg-white/10 transition text-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span>Seleccionar archivo</span>
+            <input type="file" accept="image/*" onChange={onPickFile} className="hidden" />
+          </label>
+          {uploadPreview ? (
+            <div className="rounded-lg border border-white/15 bg-white p-1 flex items-center justify-center">
+              <img src={uploadPreview} alt="Firma" className="h-16 w-full object-contain" />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-white/10 bg-white/5 flex items-center justify-center h-16 text-xs text-slate-500 italic">
+              Sin imagen
             </div>
           )}
-          <div className="mt-2 text-xs text-slate-300">
-            Formatos permitidos: PNG y JPG.
-          </div>
         </div>
       </div>
 

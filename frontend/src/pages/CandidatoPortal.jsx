@@ -197,7 +197,7 @@ export default function CandidatoPortal() {
         nota: reunionNota,
       });
       setReunionInfo(data);
-      setReunionMsg("¡Reunión agendada exitosamente!");
+      setReunionMsg("Reunion agendada exitosamente. El analista te compartira el enlace en tu perfil y por correo.");
       await loadReunionAgendada(estudio.id);
     } catch (e) {
       setReunionMsg(e?.response?.data?.detail || "Error al agendar. Intenta de nuevo.");
@@ -557,16 +557,76 @@ export default function CandidatoPortal() {
                         <div className="text-emerald-200/70 text-xs">Nota: {reunionInfo.nota}</div>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
+
+                    {/* Ubicación en tiempo real — solo cuando la visita está ACTIVA */}
+                    {visitaVirtual && (visitaVirtual.estado || "").toUpperCase() === "ACTIVA" && (
+                      <div className="rounded-xl border border-violet-400/25 bg-violet-500/10 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-semibold text-violet-200">Visita en curso</span>
+                        </div>
+                        <div className="text-xs text-white/55">
+                          {geoSharing
+                            ? "Compartiendo tu ubicación en tiempo real con el analista."
+                            : "El analista puede verificar tu ubicación durante la visita."}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {!geoSharing ? (
+                            <button
+                              onClick={startGeoShare}
+                              disabled={geoBusy}
+                              className="px-4 py-1.5 rounded-full text-xs font-semibold bg-emerald-600/80 hover:bg-emerald-600 disabled:opacity-50 transition"
+                            >
+                              {geoBusy ? "Activando…" : "Compartir mi ubicación"}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={stopGeoShare}
+                              className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-600/70 hover:bg-rose-600 transition"
+                            >
+                              Dejar de compartir
+                            </button>
+                          )}
+                        </div>
+                        {geoSharing && visitaVirtual.ultima_latitud && (
+                          <div className="text-xs text-white/40">
+                            Última posición: {Number(visitaVirtual.ultima_latitud).toFixed(5)}, {Number(visitaVirtual.ultima_longitud).toFixed(5)}
+                            {visitaVirtual.ultima_precision_m && ` (±${Math.round(visitaVirtual.ultima_precision_m)} m)`}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {reunionInfo.meeting_url ? (
+                        <a
+                          href={reunionInfo.meeting_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-4 py-1.5 rounded-full text-xs font-semibold border border-white/30 hover:bg-white/10 transition"
+                        >
+                          Abrir reunion
+                        </a>
+                      ) : null}
                       <button
                         onClick={cancelarReunionAgendada}
                         disabled={reunionBusy}
                         className="px-4 py-1.5 rounded-full text-xs font-semibold bg-rose-600/70 hover:bg-rose-600 disabled:opacity-50 transition"
                       >
-                        {reunionBusy ? "Cancelando..." : "Cancelar reunión"}
+                        {reunionBusy ? "Cancelando..." : "Cancelar reunion"}
                       </button>
                       {reunionMsg && <span className="text-xs text-sky-200">{reunionMsg}</span>}
                     </div>
+                    {!reunionInfo.meeting_url && reunionInfo.google_calendar_url && (
+                      <div className="text-xs text-emerald-200/70">
+                        El analista esta terminando de programar la reunion. Cuando el enlace quede listo aparecera aqui y tambien llegara a tu correo.
+                      </div>
+                    )}
+                    {!reunionInfo.meeting_url && !reunionInfo.google_calendar_url && (
+                      <div className="text-xs text-emerald-200/70">
+                        El enlace de la reunion se mostrara aqui cuando quede disponible.
+                      </div>
+                    )}
                   </div>
                 ) : reunionVencido ? (
                   <div className="rounded-xl border border-rose-400/20 bg-rose-500/8 p-3 text-rose-200 text-sm">
@@ -649,50 +709,6 @@ export default function CandidatoPortal() {
                     </div>
                   </>
                 )}
-              </div>
-            </div>
-          )}
-
-          {!loading && estudio && (visitaVirtual?.exists || false) && (
-            <div className="mx-4">
-              <div className="rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3 text-emerald-100">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-sm">Reunión virtual solicitada por el analista</div>
-                    <div className="text-xs text-emerald-100/80">
-                      Estado: {visitaVirtual?.estado || "NO_INICIADA"}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {visitaVirtual?.meeting_url && (
-                      <a
-                        href={visitaVirtual.meeting_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-full text-xs font-semibold border border-white/30 hover:bg-white/10"
-                      >
-                        Abrir reunión
-                      </a>
-                    )}
-                    {(visitaVirtual?.estado || "").toUpperCase() === "ACTIVA" && !geoSharing && (
-                      <button
-                        onClick={startGeoShare}
-                        disabled={geoBusy}
-                        className="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-700/80 hover:bg-emerald-700 disabled:opacity-60"
-                      >
-                        {geoBusy ? "Activando..." : "Compartir ubicación"}
-                      </button>
-                    )}
-                    {geoSharing && (
-                      <button
-                        onClick={stopGeoShare}
-                        className="px-3 py-1.5 rounded-full text-xs font-semibold border border-white/30 hover:bg-white/10"
-                      >
-                        Detener ubicación
-                      </button>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           )}
